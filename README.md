@@ -59,7 +59,7 @@ command is equivalent.
 Run the complete Buddies graph with deterministic sample responses:
 
 ```text
-roundtable review . --base-branch HEAD~1 --simulate
+roundtable review . --base-branch HEAD --simulate
 ```
 
 This is a pipeline check, not a real assessment of your code. It prints a
