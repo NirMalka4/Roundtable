@@ -1,0 +1,363 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "judge.schema.yaml"
+title: Judge output contract
+description: >-
+  Judge's claim-only adjudication of the consolidated Buddies review record. The
+  Judge evaluates reviewer claims; it does not originate findings, evaluate
+  remediation, or author correction proposals.
+preface: >-
+  Return one strict JSON object containing the aggregate adjudication summary and
+  every adjudicated reviewer claim. Reviewer remediation is intentionally outside
+  this contract.
+type: object
+additionalProperties: false
+required: [verdict, claims]
+properties:
+  verdict:
+    type: object
+    additionalProperties: false
+    required: [intent, summary]
+    properties:
+      intent:
+        type: string
+        minLength: 1
+        maxLength: 300
+        description: >-
+          What this change sets out to do, in one or two sentences read off the diff
+          itself. It orients a reader before the ruling and nothing more: it is never
+          authority for a disposition and never evidence for a claim. State the change,
+          not its quality — do not assess, praise, fault, or name reviewers here, and do
+          not assert a purpose the diff does not show.
+      summary:
+        type: string
+        minLength: 1
+        description: >-
+          The decisive evidence and whether the target may proceed, written without
+          tallying, counting, or enumerating claims and without internal rubric
+          identifiers. Begin directly with the evidence. Do not qualify claims or
+          findings with counts, cardinal or ordinal numbers, or quantity words such as
+          "only" or "sole".
+  claims:
+    type: array
+    description: >-
+      Adjudicate every supplied reviewer finding. Order blockers, escalations,
+      suggestions, then rejected and not-applicable claims; within each group order by
+      severity. For rejected and not-applicable claims, compress `reason` to one
+      sentence and include only the decisive counterevidence or scope fact.
+    x-finding-array: true
+    x-finding-adapter:
+      description: reason
+      category: criterion
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source_finding_ids
+        - primary_source_finding_id
+        - title
+        - criterion
+        - disposition
+        - severity
+        - reason
+        - evidence
+      allOf:
+        - if:
+            properties:
+              disposition: {const: upheld}
+            required: [disposition]
+          then:
+            properties:
+              evidence: {minItems: 1}
+        - if:
+            properties:
+              disposition: {const: rejected}
+            required: [disposition]
+          then:
+            properties:
+              evidence:
+                minItems: 1
+                contains:
+                  properties: {role: {const: contradiction}}
+                  required: [role]
+              counter_evidence: {minItems: 1}
+            required: [counter_evidence]
+      properties:
+        id:
+          type: string
+          pattern: '^J-\d{2}$'
+          description: >-
+            Stable claim id `J-NN`, zero-padded and indexed by position in this ordered
+            list.
+        source_finding_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: >-
+            Reviewer findings adjudicated as this proposition, copied exactly as
+            canonical `agent::finding_id` values. Cite several only when independent
+            reviewers describe the same defect. The Judge cannot originate a claim.
+          items:
+            type: string
+            pattern: '^[a-z0-9_]+::.+$'
+        primary_source_finding_id:
+          type: string
+          pattern: '^[a-z0-9_]+::.+$'
+          description: >-
+            The cited reviewer finding with the strongest claim evidence and most
+            precise anchor. It must occur in `source_finding_ids`. Select it without
+            considering remediation.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '^[^\r\n]+$'
+          description: >-
+            The problem as the reader meets it: name what misbehaves and where it
+            surfaces, in the vocabulary of the system's behavior rather than of the
+            code that implements it. State an unresolved claim as the open question.
+            Do not prescribe a correction, use an imperative, or repeat severity,
+            category, reviewer, or finding labels.
+        criterion:
+          type: string
+          enum: [functional_reliability, contract_compliance, security_privacy, test_evidence, architecture_compatibility, performance_efficiency, maintainability_quality, other]
+          description: >-
+            The single domain whose required proof governs this claim. Use `other`
+            only when no defined domain applies.
+        disposition:
+          type: string
+          enum: [upheld, rejected, insufficient_evidence, not_applicable]
+          description: >-
+            `upheld` when the evidence proves the claim; `rejected` when evidence
+            disproves it; `insufficient_evidence` when required evidence is missing or
+            conflicting; `not_applicable` when it lies outside a declared closed-world
+            boundary.
+        severity:
+          type: string
+          enum: [high, medium, low, none]
+          description: >-
+            Independent consequence rating: `high` for a proven release blocker,
+            `medium` for a material contained issue, `low` for a local non-blocking
+            issue, and `none` for a rejected or not-applicable claim. `high` requires
+            `upheld` — an unproven consequence is never a release blocker. When you
+            cannot determine consequence, rate the worst outcome the evidence does
+            support (`medium` if it could conceal a blocker, otherwise `low`), set
+            `disposition` to `insufficient_evidence`, and state the uncertainty in
+            `reason`.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: >-
+            The reader's takeaway, in at most two sentences, written for someone
+            deciding what to do about this claim. Sentence one states the
+            consequence: what breaks, what is lost, or what goes unverified.
+            Sentence two is optional and states the triggering condition: the input,
+            state, or configuration under which it happens. For an
+            `insufficient_evidence` claim, state instead what is missing and what
+            would settle it. When `severity` sits below the band the stated
+            consequence matches, that sentence two states the bound that lowered it
+            instead. Then stop.
+
+            `evidence` is rendered immediately below this text and already shows the
+            mechanism with file and line, so do not restate it here: do not repeat the
+            title, do not trace how execution reaches the fault, and do not name a
+            file, class, method, or field that one of your `evidence` entries already
+            cites — refer to it by what it does. Do not discuss reviewers, the
+            adjudication process, proposed remediation, or internal rubric
+            identifiers.
+        evidence:
+          type: array
+          maxItems: 4
+          description: >-
+            The observations that carry this adjudication, and the only grounding
+            published with the claim. Cite what a reader must open to confirm the
+            proposition holds; leave out anything that merely restates it. Consuming a
+            reviewer's finding requires grounding either way: an `upheld` claim needs at
+            least one citation, and a `rejected` claim needs at least one, of which one
+            must carry `role: contradiction` — rejecting deletes a peer's grounded work,
+            so it may not cost less than agreeing. `insufficient_evidence` and
+            `not_applicable` are exempt: they assert that the record does not settle the
+            question, and no citation can ground an absence. Record anything that argues
+            the other way in `counter_evidence` instead.
+          items:
+            type: object
+            additionalProperties: false
+            required: [file, observation, role]
+            properties:
+              file:
+                type: string
+                minLength: 1
+                description: >-
+                  Repository-relative path of the cited source, spelled as it appears in
+                  the change or in the file you read.
+              start_line:
+                type: integer
+                minimum: 1
+                description: >-
+                  First cited line. Omit only when the observation is about the file as
+                  a whole rather than a place inside it.
+              end_line:
+                type: integer
+                minimum: 1
+                description: >-
+                  Last cited line when the observation spans a range. Omit for a single
+                  line.
+              observation:
+                type: string
+                minLength: 1
+                maxLength: 200
+                description: >-
+                  What is true at that location, stated so a reader confirms it by
+                  looking. An observation, not an inference, a recommendation, or the
+                  conclusion restated.
+              role:
+                type: string
+                enum: [defect, trigger, reach, missing_guard, contradiction, verification]
+                description: >-
+                  What this observation contributes to the adjudication: `defect` the
+                  flawed code itself; `trigger` what makes the flaw occur; `reach` how
+                  untrusted or high-volume input arrives there; `missing_guard` where a
+                  required check is absent; `contradiction` something at that location
+                  that is inconsistent with the reviewer's conclusion; `verification` an
+                  independent check you performed, including the bound that set a
+                  severity on a claim you upheld. Restating or confirming the
+                  reviewer's mechanism is never a `contradiction`. When the mechanism
+                  holds and the finding fails on consequence instead, the contradiction
+                  is what bounds that consequence — cite the dominant cost, the enclosing
+                  guard, or the caller that cannot reach it, not the mechanism itself.
+                  That bound is a `contradiction` only where it defeats the finding;
+                  where the finding stands and the bound merely limits it, it is a
+                  `verification`.
+        counter_evidence:
+          type: array
+          maxItems: 3
+          description: >-
+            What argued against the ruling you reached and lost, kept for the durable
+            record and never published with the claim. An observation that *changed*
+            the ruling does not belong here — including one that bounded the
+            consequence enough to lower `severity`: that produced the ruling rather
+            than arguing against it, so it belongs in `evidence` with role
+            `verification`, published where a reader can open it. REQUIRED when
+            `disposition` is `rejected`: the reviewer built a case, so something
+            material always cut the other way, and writing down the strongest part of
+            it is what keeps a rejection from being an assertion. Otherwise leave it
+            out when nothing material cut the other way.
+          items:
+            type: object
+            additionalProperties: false
+            required: [file, observation]
+            properties:
+              file:
+                type: string
+                minLength: 1
+              start_line:
+                type: integer
+                minimum: 1
+              end_line:
+                type: integer
+                minimum: 1
+              observation:
+                type: string
+                minLength: 1
+                maxLength: 200
+                description: >-
+                  What is true at that location that cuts against the disposition.
+examples:
+  - verdict:
+      intent: "Adds a search endpoint that queries orders by a caller-supplied term."
+      summary: "User-controlled input reaches raw SQL without an authorization or parameterization boundary, so the target may not proceed."
+    claims:
+      - id: "J-01"
+        source_finding_ids: ["taintcheck::TC-01"]
+        primary_source_finding_id: "taintcheck::TC-01"
+        title: "User input reaches an unparameterized search query"
+        criterion: security_privacy
+        disposition: upheld
+        severity: high
+        reason: "A caller can change the shape of the query and reach order data the endpoint was never meant to expose. Anyone on the network can do it: the route accepts anonymous requests."
+        evidence:
+          - file: "src/data/SearchService.cs"
+            start_line: 42
+            observation: "q is concatenated into the SQL string passed to the raw executor"
+            role: defect
+          - file: "src/config/RouteConfig.cs"
+            start_line: 31
+            end_line: 34
+            observation: "the route is registered with no authorization filter"
+            role: reach
+      - id: "J-02"
+        source_finding_ids: ["north_star::NS-02"]
+        primary_source_finding_id: "north_star::NS-02"
+        title: "Whether a stored result page can outlive the access that produced it"
+        criterion: contract_compliance
+        disposition: insufficient_evidence
+        severity: medium
+        reason: "A caller whose access was revoked may keep reading order pages until the stored copy ages out. A designated policy on who a stored page may be shared with, and what invalidates it, would settle this."
+        evidence:
+          - file: "src/data/SearchService.cs"
+            start_line: 70
+            end_line: 73
+            observation: "the page is stored under a key built from the search term alone"
+            role: defect
+          - file: "src/api/SearchController.cs"
+            start_line: 24
+            observation: "every authenticated caller resolves to the same store regardless of tenant"
+            role: reach
+      - id: "J-03"
+        source_finding_ids: ["countercase::CC-01", "bigoh::BH-02"]
+        primary_source_finding_id: "countercase::CC-01"
+        title: "An unbounded page size pulls the whole table into memory"
+        criterion: functional_reliability
+        disposition: upheld
+        severity: medium
+        reason: "One request can load every order row at once and stall the service for concurrent callers. It happens when a caller asks for a page larger than the backing store returns in a single batch."
+        evidence:
+          - file: "src/api/SearchController.cs"
+            start_line: 38
+            observation: "pageSize is bound from the query string with no upper-bound validation"
+            role: missing_guard
+          - file: "src/data/SearchService.cs"
+            start_line: 61
+            observation: "pageSize reaches Take unclamped"
+            role: trigger
+          - file: "src/gateway/routes.yaml"
+            start_line: 12
+            observation: "the gateway rejects pageSize above 500 before the request reaches this service"
+            role: verification
+      - id: "J-04"
+        source_finding_ids: ["redgreen::RG-01"]
+        primary_source_finding_id: "redgreen::RG-01"
+        title: "A blank search term returns every order"
+        criterion: test_evidence
+        disposition: upheld
+        severity: low
+        reason: "A blank term returns the whole order set rather than nothing, and the suite would stay green if that behavior changed again. It happens whenever the term is omitted from the request."
+        evidence:
+          - file: "src/data/SearchService.cs"
+            start_line: 48
+            observation: "an empty term yields a predicate that matches every row"
+            role: defect
+          - file: "test/data/SearchServiceTests.cs"
+            start_line: 15
+            end_line: 22
+            observation: "the fixture asserts the populated-term path only"
+            role: missing_guard
+      - id: "J-05"
+        source_finding_ids: ["bigoh::BH-01"]
+        primary_source_finding_id: "bigoh::BH-01"
+        title: "Per-order allocation in the search loop"
+        criterion: performance_efficiency
+        disposition: rejected
+        severity: none
+        reason: "The allocation is real but cannot be felt: the same loop iteration already issues a database round trip, so removing it changes nothing a caller can measure."
+        evidence:
+          - file: "src/data/SearchService.cs"
+            start_line: 55
+            end_line: 58
+            observation: "each iteration awaits ExecuteReaderAsync before building its result row"
+            role: contradiction
+        counter_evidence:
+          - file: "src/data/SearchService.cs"
+            start_line: 57
+            observation: "a new List is constructed per order, so the allocation count does grow with result size"

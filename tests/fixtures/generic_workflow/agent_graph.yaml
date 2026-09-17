@@ -1,0 +1,34 @@
+name: generic-workflow
+publisher: null
+sink_cardinality: one
+plugins:
+  - tests.fixtures.generic_workflow.plugin
+agents:
+  - key: Source
+    emoji: ""
+    kind: source
+  - key: Draft
+    emoji: ""
+    kind: llm
+    model: mock
+    system_prompt:
+      instructions: prompts/draft.md
+    edges:
+      - from: Source
+    output_schema: null
+  - key: Structured
+    emoji: ""
+    kind: llm
+    model: mock
+    system_prompt:
+      instructions: prompts/structured.md
+    edges:
+      - from: Draft
+    output_schema: structured.schema.yaml
+  - key: Summary
+    emoji: ""
+    kind: code
+    code_fn: generic_fixture_summary
+    edges:
+      - from: Structured
+      - from: Draft

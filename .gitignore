@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Session/local artifacts
+/artifacts/
+*.tmp
+spike_err.txt
+build/
+dist/
+*.whl
+
+# Gate output (scripts/gates.py runs pytest with --junitxml, as CI does)
+junit.xml
+.coverage

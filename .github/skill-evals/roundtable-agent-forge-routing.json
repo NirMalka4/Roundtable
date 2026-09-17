@@ -1,0 +1,21 @@
+{
+  "skill": "roundtable-agent-forge",
+  "prompts": [
+    {
+      "id": "prompt-body-only",
+      "class": "should-fire",
+      "text": "The countercase reviewer keeps claiming confidence without a proof trace. Rewrite only its existing Roundtable instructions; don't touch its graph or JSON contract."
+    },
+    {
+      "id": "standalone-agent",
+      "class": "near-miss",
+      "expect": "agent-forge",
+      "text": "Create a standalone Copilot custom-agent profile that audits database migrations."
+    },
+    {
+      "id": "generic-yaml",
+      "class": "should-not-fire",
+      "text": "Clean up this generic YAML file and explain why the parser rejects it."
+    }
+  ]
+}

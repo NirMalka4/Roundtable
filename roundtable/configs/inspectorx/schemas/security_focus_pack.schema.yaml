@@ -1,0 +1,59 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: security_focus_pack.schema.yaml
+title: security_focus_pack deterministic enricher output
+description: >-
+  Output shape of the SecurityFocusPack deterministic node
+  (configs/inspectorx/plugins/security_packs.build_security_focus_pack): the SIP-driven security scope
+  hint delivered to the four security consumers under `## security_focus_pack`. The
+  builder always emits the same six keys regardless of input (empty SIP selection
+  still yields all six), so all are required and no extra keys are allowed — this is
+  the referenceable surface the consumers cite as `security_focus_pack.<field>`.
+type: object
+additionalProperties: false
+required:
+  - selected_owasp
+  - selected_sec_checks
+  - priority_scenarios
+  - grep_evidence
+  - excluded_owasp
+  - category_map
+properties:
+  selected_owasp:
+    type: array
+    items:
+      type: object
+      required: [id, name, reason]
+  excluded_owasp:
+    type: array
+    items:
+      type: object
+      required: [id, name, reason]
+  selected_sec_checks:
+    type: array
+    items: {type: string}
+  priority_scenarios:
+    type: array
+    items: {type: string}
+  grep_evidence:
+    type: array
+    items:
+      type: object
+      required: [file, line, keyword]
+  category_map:
+    type: array
+    items:
+      type: object
+      required: [num, category, secRange, status, reason]
+examples:
+  - selected_owasp:
+      - {id: A03, name: Injection, reason: Selected by Security Intent Profiler}
+    selected_sec_checks: [SEC-036-SEC-060]
+    priority_scenarios:
+      - A 400 body carrying internal diagnostics is reflected verbatim in a user toast.
+    grep_evidence:
+      - {file: src/api/error.ts, line: 36, keyword: auth}
+    excluded_owasp:
+      - {id: A07, name: Authentication Failures, reason: Filtered out by Security Intent Profiler}
+    category_map:
+      - {num: 3, category: Input Validation & Injection, secRange: SEC-036-060, status: RELEVANT, reason: Selected by Security Intent Profiler}
+      - {num: 1, category: Authentication & Identity, secRange: SEC-001-015, status: SKIP, reason: Filtered out by Security Intent Profiler}

@@ -1,0 +1,42 @@
+# Canonical output shape for the Code Correctness specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The richer per-finding fields (proof, fix)
+# and the `orphan_assessments` entries are advisory shape guidance the minimal
+# shared schema deliberately does not constrain. orphan_assessments is populated
+# ONLY on a Judge re-invocation carrying orphan_findings[]; on a normal first pass
+# it is [].
+findings:
+  - id: COR-001
+    type: Logic Error
+    severity: high
+    locations:
+      - filePath: src/PaymentProcessor.cs
+        startLine: 40
+        endLine: 46
+    description: >-
+      `customer` can be null when the lookup misses, but it is dereferenced at
+      line 44 without a guard, throwing on the miss path.
+    proof: >-
+      FindCustomer returns null on a cache miss (line 40); the early-return guard
+      only covers the empty-id case (line 42), so the miss path reaches the
+      `customer.Tier` dereference at line 44 with a null receiver.
+    fix:
+      language: csharp
+      code: |-
+        if (customer is null) return Reject("unknown customer");
+orphan_assessments:
+  - original_finding_id: ORPH-014
+    classified_as: Logic Error
+    proof: >-
+      Routed orphan is a null-deref on the miss path: FindOrder returns null on a
+      cache miss and the caller dereferences `order.Total` with no guard.
+    needs_human_judgment: false
+    severity: high
+  - original_finding_id: ORPH-021
+    classified_as: UNCLASSIFIABLE
+    unclassifiable_reason: >-
+      The pattern references a domain rule not present in the diff or dossier, so it
+      cannot be proven under any correctness category.
+    needs_human_judgment: true
+    severity: medium

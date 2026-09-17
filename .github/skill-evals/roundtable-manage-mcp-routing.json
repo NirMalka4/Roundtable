@@ -1,0 +1,21 @@
+{
+  "skill": "roundtable-manage-mcp",
+  "prompts": [
+    {
+      "id": "register-and-scope",
+      "class": "should-fire",
+      "text": "Roundtable should provision our existing read-only ticket server for north_star and permit just its lookup operation."
+    },
+    {
+      "id": "implement-server",
+      "class": "near-miss",
+      "expect": "mcp-builder",
+      "text": "Implement an MCP server around our ticket API, including its tool schemas and handlers."
+    },
+    {
+      "id": "generic-mcp-config",
+      "class": "should-not-fire",
+      "text": "Add this third-party MCP server to my personal Copilot configuration."
+    }
+  ]
+}

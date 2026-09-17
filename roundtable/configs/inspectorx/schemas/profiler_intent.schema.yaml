@@ -1,0 +1,58 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: profiler_intent.schema.yaml
+title: profiler_intent agent output
+description: >-
+  Legacy custom contract: a single required 'intent_profile' object. The object type
+  rejects null (legacy treats a null required field as absent).
+type: object
+required: [intent_profile]
+properties:
+  intent_profile:
+    type: object
+examples:
+  - intent_profile:
+      summary: The change adds error-state handling to the suppression-rule list view.
+      classification: Feature
+      confidence: High
+      business_context:
+        available: true
+        scenario: Surface save failures to the user.
+        alignment: The code change aligns with the stated requirement to improve error visibility.
+    work_item_context:
+      traversal_summary:
+        visited: 2
+        max_items: 20
+        pr_id: 67890
+        linked_work_items: 2
+        root_work_item_id: 12345
+        levels_traversed_up: 1
+        stopped_at_type: User Story
+      root_work_item:
+        id: 12345
+        title: Show suppression-rule save failures
+        type: User Story
+        state: Active
+      directly_linked:
+        - id: 12346
+          type: Task
+          state: Active
+          title: Add save-error presentation state
+          acceptance_criteria:
+            - A failed save displays an actionable error.
+      related_children: [12346]
+      review_hints:
+        - Verify the new error state is covered by tests.
+    reviewer_comments:
+      total_threads_fetched: 1
+      bot_threads_skipped: 0
+      human_threads_analyzed: 1
+      comments:
+        - thread_id: 10
+          author: reviewer@example.com
+          classification: question
+          summary: Reviewer asked whether stale errors are cleared after retry.
+          action_taken: Check retry success paths for error reset.
+    review_hints:
+      - check: Verify stale errors are cleared after successful retry.
+        source: reviewer_comments
+        priority: High

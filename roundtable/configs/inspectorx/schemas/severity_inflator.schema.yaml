@@ -1,0 +1,45 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: severity_inflator.schema.yaml
+title: severity_inflator agent output
+description: >-
+  'inflated_findings' is a semantic 'required' field — present, non-null, and (if an
+  array) non-empty. Each entry re-severities ONE upstream finding: 'finding_id' +
+  'source_agent' cross-reference the original finding (canonical vocabulary terms —
+  finding_id is a pointer, not this record's own id), 'original_severity' is its
+  baseline and 'severity' is the inflated result. Field names/types compose from the
+  shared vocabulary via $ref, so the json_schema gate rejects a wrong name/casing.
+type: object
+required: [inflated_findings]
+properties:
+  inflated_findings:
+    type: array
+    x-finding-array: true
+    minItems: 1
+    # An inflated finding re-severities an upstream finding: 'finding_id' is a
+    # pointer to that original (not this record's own id) and its one-line 'title'
+    # carries the finding text. Map both onto the canonical finding; 'severity' and
+    # the rest read canonically.
+    x-finding-adapter:
+      id: finding_id
+      description: title
+    items:
+      type: object
+      required: [finding_id, source_agent, original_severity, severity]
+      properties:
+        finding_id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/finding_id"}
+        source_agent: {$ref: "_shared/vocabulary.schema.yaml#/$defs/source_agent"}
+        original_severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/original_severity"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+examples:
+  - inflated_findings:
+      - finding_id: F-001
+        source_agent: AttackSurfaceScanner
+        original_severity: low
+        severity: high
+        title: Unbounded request fan-out exhausts the worker pool
+        multipliers_applied:
+          - type: scale
+            description: Scale multiplier amplifies the impact of a user-visible failure.
+            factor: 1M requests/hour
+        justification: The failure sits on a high-volume path, so a low-probability bug has material production impact.

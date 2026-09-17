@@ -1,0 +1,43 @@
+# Runtime inventory - static built-in tool metadata for one Copilot CLI build.
+#
+# WHY THIS FILE EXISTS: an unrecognised entry in the custom-agent `tools:` field is silently
+# ignored, so a typo (or an alias this runtime does not implement) costs the agent
+# a capability with no error anywhere - three of the seven aliases published in the
+# custom-agent spec, `search`, `web` and `todo`, expand to NOTHING here, which is
+# how every Buddies reviewer ran without `grep`/`glob` for its whole life.
+# `roundtable doctor` checks tool declarations against this list. Authenticated
+# model availability is queried live because it varies by account and policy.
+#
+# Authenticated doctor/review runs use the automatic per-user cache, not this
+# release baseline. Maintainer refresh reuses the same two-session probe because
+# tools initialise lazily and a pre-turn metadata query returns zero.
+#
+# Declare CONCRETE tool names only. Aliases are deliberately absent: they are
+# lossy, runtime-dependent, and silently partial.
+
+cli_version: 1.0.84-1
+captured: 2026-09-08
+
+# Every built-in tool the runtime can grant.
+builtin:
+- apply_patch
+- factories_manage
+- glob
+- list_agents
+- list_powershell
+- powershell
+- read_agent
+- read_powershell
+- rg
+- run_factory
+- sql
+- stop_powershell
+- task
+- view
+- web_fetch
+- write_agent
+
+# Present even under `tools: []`. Ungrantable and unrevokable, so a call to one is
+# never a grant violation and declaring one is a no-op.
+always_on:
+- sql

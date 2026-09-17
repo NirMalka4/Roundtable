@@ -1,0 +1,132 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: judge.schema.yaml
+title: judge agent output
+description: >-
+  Structural envelope for the Judge verdict. The schema owns the top-level shape: a fixed
+  'verdict' enum, the presence of the summary/assessment/compliance narrative fields, the
+  three overlay arrays as arrays, a 'count_verification' object, the prohibition of the
+  legacy finding buckets, AND the severity enums — every overlay entry's 'verdict_severity'
+  is typed by '$ref severity_blocking' (the blocking subset, since a verdict overlay entry
+  acts on a finding) and every observation's 'severity' by '$ref severity' (schema-enforced
+  canonical-lowercase, exactly like every other agent's severity; the editorial "no info"
+  preference for observations stays prompt-only, like every per-agent severity ceiling). The
+  remaining per-entry contract (non-empty ids, boolean flags, the JO-id pattern, merged_with
+  refs, and payload-field prohibition) is owned by the 'judge_entries' gate — the schema owns
+  value-types/enums, the gate owns the structural/cross-field rules.
+type: object
+required:
+  - verdict
+  - executive_summary
+  - architectural_assessment
+  - plan_compliance
+  - verdict_overlay
+  - validated_safe
+  - needs_human_judgment
+  - count_verification
+properties:
+  verdict:
+    $ref: "_shared/vocabulary.schema.yaml#/$defs/verdict"
+  executive_summary: {not: {type: "null"}}
+  architectural_assessment: {not: {type: "null"}}
+  plan_compliance: {not: {type: "null"}}
+  verdict_overlay:
+    type: array
+    items:
+      type: object
+      properties:
+        verdict_severity:
+          anyOf:
+            - $ref: "_shared/vocabulary.schema.yaml#/$defs/severity_blocking"
+            - type: "null"
+  validated_safe: {type: array}
+  needs_human_judgment: {type: array}
+  judge_observations:
+    type: array
+    items:
+      type: object
+      required: [severity]
+      properties:
+        severity:
+          $ref: "_shared/vocabulary.schema.yaml#/$defs/severity"
+  count_verification: {type: object}
+allOf:
+  - not: {required: [blocking_findings]}
+  - not: {required: [non_blocking_issues]}
+  - not: {required: [detailed_findings]}
+examples:
+  - verdict: APPROVE_WITH_SUGGESTIONS
+    executive_summary: >-
+      Refactor sharing error/empty-state rendering across the SR and ICR list surfaces.
+      No critical defects or HIGH+ security risk; remaining issues are MEDIUM/LOW
+      correctness and coverage gaps that do not gate production.
+    architectural_assessment:
+      fundamental_issues:
+        - summary: Race condition on the shared cache-refresh path
+          related_refs:
+            - source_agent: exploit_engineer
+              finding_id: EE-003
+      consistency_check: >-
+        Specialists broadly agree; divergence is only in severity framing.
+      completeness_check: >-
+        Coverage of the new shared components exists; residual gap is verifying the
+        deleted ICR specs carried no unique shapes.
+    plan_compliance:
+      compliance_status: PARTIAL
+      deviations:
+        - requirement: Use optimistic concurrency on writes
+          violation: Code issues blind writes with no ETag params
+    verdict_overlay:
+      - finding_id: SEC-001
+        source_agent: security
+        verdict_severity: low
+        category_override: security
+        exploitability_overlay:
+          rating: hard
+          reasoning: >-
+            Requires a pre-authenticated same-user session and a crafted 400 body; no
+            cross-user or unauthenticated path exists.
+        blocking: false
+        judge_justification: >-
+          Verbatim 400 body rendered into a same-user toast; PenTest and ExploitEngineer
+          rated it non-exploitable. Defense-in-depth only, not a security gate.
+        merged_with:
+          - source_agent: security_intent_profiler
+            finding_id: SIP-001
+      - finding_id: TQ-001
+        source_agent: testquality
+        verdict_severity: null
+        blocking: false
+        judge_justification: >-
+          The new error/empty-state wiring has only a smoke spec; a render-prop
+          regression would surface only in slow CI. Test gap, not a shipped defect.
+        merged_with: []
+    validated_safe:
+      - finding_id: PERF-002
+        source_agent: optimizer
+        reason: >-
+          Flagged N+1 query is inside a guarded feature branch that is not reachable on
+          the changed list surfaces; no runtime impact.
+    needs_human_judgment:
+      - finding_id: EE-003
+        source_agent: exploit_engineer
+        reason: >-
+          Potential cache-refresh race depends on deployment topology the review cannot
+          observe; escalate to the owning team to confirm.
+    judge_observations:
+      - id: JO-001
+        severity: medium
+        category: Architecture
+        summary: >-
+          Both list surfaces duplicate retry wiring that the shared component was meant
+          to centralize; not a specialist finding but worth a follow-up.
+        blocking: false
+    count_verification:
+      total_specialist_findings_seen: 5
+      published_primary: 2
+      merged_subordinate: 1
+      validated_safe_count: 1
+      needs_human_judgment_count: 1
+      judge_observations_count: 1
+      accounted_total: 5
+      unclassified: 0
+      verification_passed: true

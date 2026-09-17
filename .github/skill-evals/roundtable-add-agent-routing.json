@@ -1,0 +1,21 @@
+{
+  "skill": "roundtable-add-agent",
+  "prompts": [
+    {
+      "id": "add-buddies-reviewer",
+      "class": "should-fire",
+      "text": "Buddies needs one accessibility reviewer whose findings feed the existing adjudicator. Wire that new reviewer all the way through validation."
+    },
+    {
+      "id": "run-review",
+      "class": "near-miss",
+      "expect": "inspectorx-review",
+      "text": "Run InspectorX on my current branch and return only evidence-grounded blocking defects."
+    },
+    {
+      "id": "generic-schema",
+      "class": "should-not-fire",
+      "text": "Add an optional timestamp property to this ordinary JSON Schema."
+    }
+  ]
+}

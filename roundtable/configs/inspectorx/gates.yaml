@@ -1,0 +1,92 @@
+# ─── OVG domain gate manifest (this config's task-specific gates) ─────────────
+#
+# The DOMAIN half of the gate manifest: gates specific to this config's task
+# (code review). The engine-core universal gates (json_schema, …) are declared in
+# validation/gates_core.yaml and composed in automatically — do NOT redeclare them
+# here (a collision is rejected).
+#
+# Each gate maps to a reusable callable (`fn`, resolved in validation/gates.py)
+# plus its declarative defaults. Agents opt in by listing gate names in their
+# `ovg_gates` (agent_graph.yaml); an agent entry may override `level`/`hint` per
+# gate. Gate functions return NEUTRAL diagnostics — the runner stamps the level.
+#
+#   fn            : name of the registered callable (defaults to the gate name)
+#   default_level : 'error' | 'warn' — severity the runner stamps unless overridden
+#   default_hint  : name of a configs/inspectorx/hints/<name>.md corrective-feedback file
+#   requires      : field-paths the gate reads; drives the doctor's schema<->gate
+#                   coherence check (a wired gate whose requires paths are absent
+#                   from the resolved schema is a dead gate; a schema that has a
+#                   gate's trigger-paths but doesn't wire the gate is flagged).
+#
+# NO contract data (levels, hints, field-paths) lives in Python — only here.
+
+gates:
+  grounded_locations:
+    fn: grounded_locations
+    default_level: warn
+    default_hint: grounded_locations
+    requires:
+      - findings[].locations[].filePath
+
+  generic_phrase:
+    fn: generic_phrase
+    default_level: warn
+    default_hint: generic_phrase
+    requires:
+      - findings[].description
+
+  locations_floor:
+    fn: locations_floor
+    default_level: warn          # error for the specialist agents (per-agent override)
+    default_hint: locations_floor
+    requires:
+      - findings[].locations[].filePath
+      - findings[].locations[].startLine
+      - findings[].locations[].endLine
+
+  proof_depth:
+    fn: proof_depth
+    default_level: error
+    default_hint: proof_depth
+    requires:
+      - findings[].severity
+      - findings[].exploitability
+      - findings[].trace
+      - findings[].impact
+
+  fix_present:
+    fn: fix_present
+    default_level: error
+    default_hint: fix_present
+    requires:
+      - findings[].severity
+      - findings[].fix
+
+  fix_prose_shape:
+    fn: fix_prose_shape
+    default_level: warn
+    default_hint: fix_prose_shape
+    requires:
+      - findings[].fix
+
+  mode_dependent_arrays:
+    fn: mode_dependent_arrays
+    default_level: error
+    default_hint: mode_dependent_arrays
+    requires: []          # driven by per-agent params (mode_field + requirements map)
+
+  judge_entries:
+    fn: judge_entries
+    default_level: error
+    default_hint: judge_entries
+    requires:
+      - verdict_overlay[].finding_id
+      - verdict_overlay[].source_agent
+      - verdict_overlay[].blocking
+      - verdict_overlay[].judge_justification
+      - verdict_overlay[].verdict_severity
+      - validated_safe[].finding_id
+      - validated_safe[].reason
+      - needs_human_judgment[].finding_id
+      - judge_observations[].id
+      - judge_observations[].severity

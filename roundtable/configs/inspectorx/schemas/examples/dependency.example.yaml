@@ -1,0 +1,26 @@
+# Canonical output shape for the Dependency specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The evidence trace and fix fields are advisory shape guidance
+# the minimal shared schema deliberately does not constrain.
+findings:
+  - id: DEP-001
+    category: dependency_justification
+    severity: medium
+    title: New direct dependency `left-pad` has no usage in changed source
+    description: >-
+      `package.json` adds `"left-pad": "^1.3.0"` but no `.ts`/`.tsx` file in the diff imports it.
+      Bundle impact is real; justification is unclear. (Maintainer trust / license: not verified from registry.)
+    locations:
+      - filePath: src/web-frontend/package.json
+        startLine: 47
+        endLine: 47
+      - filePath: src/web-frontend/package-lock.json
+        startLine: 1294
+        endLine: 1310
+    trace:
+      - package.json:47 adds `left-pad` at version `^1.3.0`.
+      - ripgrep across changed src/**/*.{ts,tsx} returns 0 imports of `left-pad`.
+      - String.prototype.padStart has been in the ECMAScript spec since 2017 and is available in the target browsers.
+    fix: >-
+      Remove the `left-pad` dependency and use `String.prototype.padStart` directly, or add an import in the motivating file and cite it in the PR description.

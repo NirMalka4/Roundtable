@@ -1,0 +1,381 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "roundtable://engine/config_meta.schema.yaml"
+title: "Configuration meta-schema"
+description: >-
+  Engine-owned grammar of a well-formed config `agent_graph.yaml`. Structural
+  only: it fixes the field SET and shape (spelling, nesting, scalar types) so a
+  typo or a stray/dead key fails loud at doctor time. It deliberately does NOT
+  encode semantics — valid `kind` values, edge-target existence, gate↔schema
+  coherence and the like are proven by the coherence layers, not here. Keep this
+  in lockstep with `agent_graph.entry_to_dict` (the on-disk serializer) and the
+  top-level `load_*` loaders; both are the source of truth for the field set.
+type: object
+additionalProperties: false
+required:
+  - agents
+properties:
+  name:
+    type: string
+    description: "Config self-identifier (the named instance). Absent ⇒ 'inspectorx'."
+  branding:
+    type: object
+    additionalProperties: false
+    description: >-
+      Optional product-identity strings the output sink renders on user-facing
+      surfaces (report header/footer, PR-comment attribution). Absent ⇒ the engine
+      name — the ENGINE owns logs/CLI/home, the BUNDLE owns the review product name.
+    properties:
+      product_name:
+        type: string
+        description: "Human product name on report/comment surfaces (default: engine name)."
+      product_emoji:
+        type: string
+        description: "Glyph shown before the product name on those surfaces (default: none)."
+      report_title:
+        type: string
+        description: "Report headline noun phrase, e.g. 'Deep Compute Review' (default 'Review')."
+  executor:
+    type: string
+    description: "Registered executor strategy key (default 'dag')."
+  sink:
+    anyOf:
+      - type: string
+      - type: "null"
+    description: "Registered output-sink key (default 'azure_devops')."
+  publisher:
+    anyOf:
+      - type: string
+      - type: "null"
+    description: "Registered publisher key. Canonical replacement for sink."
+  sink_cardinality:
+    enum: [one, any]
+    description: "Result-contract: expected number of runnable graph sinks (doctor Layer-11). 'one' (default) = a single unambiguous domain result; 'any' opts a multi-output topology out."
+  projector:
+    anyOf:
+      - type: string
+      - type: "null"
+    description: "Optional registered publish-projector key."
+  report:
+    anyOf:
+      - type: string
+      - type: "null"
+    description: "Optional registered session-report renderer key (output.report). Absent/null = the slim verdict stub. Independent of `sink:` — every run writes a report, publishing is optional."
+  publishing:
+    type: object
+    additionalProperties: false
+    description: "Configuration-owned defaults for publishing finding threads."
+    properties:
+      default_min_severity:
+        anyOf:
+          - type: string
+            minLength: 1
+          - type: "null"
+        description: "Default per-finding thread floor. Null/absent publishes all severities."
+  max_steps:
+    anyOf:
+      - type: integer
+      - type: "null"
+    description: "Optional graph-level step budget."
+  plugins:
+    type: array
+    items:
+      type: string
+    description: >-
+      Bundle plugin module dotted-paths, imported by
+      `config.graph_config.register_config_plugins` to populate the generic engine
+      registries with this config's DOMAIN built-ins (deterministic enrichers +
+      consolidation extract seams). Absent ⇒ none.
+  domain_values:
+    description: >-
+      Optional ordered domain values used by run features outside an agent's schema
+      contract. Resolve them from an existing schema vocabulary or declare them
+      inline when no such vocabulary exists.
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required: [schema]
+        properties:
+          schema:
+            type: string
+            minLength: 1
+            description: "Path under schemas/ whose direct $defs enums supply the values."
+      - type: object
+        additionalProperties: false
+        required: [values]
+        properties:
+          values:
+            type: object
+            minProperties: 1
+            additionalProperties:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string
+                minLength: 1
+  agents:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/agent"
+allOf:
+  - not:
+      required: [sink, publisher]
+
+$defs:
+  agent:
+    type: object
+    additionalProperties: false
+    required:
+      - key
+      - emoji
+    properties:
+      key:
+        type: string
+        minLength: 1
+        description: "Unique node id (graph key / SDK --agent id)."
+      emoji:
+        type: string
+        description: "Display glyph for report/log lines."
+      kind:
+        type: string
+        description: >-
+          Node handler kind (e.g. llm/source/reducer/code). Valid values are the
+          node-handler registry's business, checked by the kind-contract layer,
+          not enumerated here.
+      system_prompt:
+        $ref: "#/$defs/system_prompt"
+      prompt_path:
+        type: string
+        description: "Back-compat flat instructions path (pre-`system_prompt`)."
+      model:
+        type: string
+        minLength: 1
+        description: "The SDK model assigned to this LLM agent."
+      tools:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 1
+        description: >-
+          Optional SDK custom-agent tool allowlist. Absent means unrestricted;
+          an empty list means no tools.
+      tool_policy:
+        $ref: "#/$defs/tool_policy"
+      mcp:
+        type: array
+        items:
+          $ref: "#/$defs/mcp_binding"
+      edges:
+        type: array
+        items:
+          $ref: "#/$defs/edge"
+      fan_out:
+        $ref: "#/$defs/fan_out"
+      consolidation:
+        $ref: "#/$defs/consolidation"
+      code_fn:
+        type: string
+        description: "Enricher/handler function key for non-llm nodes."
+      output_schema:
+        anyOf:
+          - type: string
+          - type: "null"
+        description: "Bundle-relative output schema. For an LLM, non-null enables the reserved terminal submission transport and output validation; null forwards backend text unchanged."
+      output_example:
+        type: string
+        description: "Illustrative output rendered as a string block."
+      ovg_gates:
+        type: array
+        items:
+          $ref: "#/$defs/ovg_gate"
+      agent_id:
+        type: string
+      display_name:
+        type: string
+        description: "Report label for this agent (graph-derived identity SSOT)."
+      delivery_label:
+        type: string
+      timeout_seconds:
+        type: integer
+        minimum: 1
+      git_context_mode:
+        type: string
+      inject_repo_instructions:
+        type: boolean
+      terminal:
+        type: boolean
+      non_graph_infra:
+        type: boolean
+
+  system_prompt:
+    type: object
+    additionalProperties: false
+    required:
+      - instructions
+    properties:
+      instructions:
+        type: string
+        description: "The agent body file (always first in composition)."
+      shared_context:
+        type: array
+        items:
+          type: string
+        description: "Ordered `Shared/*` files appended after the body."
+
+  tool_policy:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      powershell:
+        type: object
+        additionalProperties: false
+        required: [invocation_cap_seconds, detached_allowed]
+        properties:
+          invocation_cap_seconds:
+            type: integer
+            minimum: 1
+          detached_allowed:
+            type: boolean
+      read_powershell:
+        type: object
+        additionalProperties: false
+        required: [poll_cap_seconds]
+        properties:
+          poll_cap_seconds:
+            type: integer
+            minimum: 1
+
+  mcp_binding:
+    type: object
+    additionalProperties: false
+    required:
+      - server
+    properties:
+      server:
+        type: string
+        description: "Registered MCP server name."
+      usage:
+        type: string
+        description: "Optional per-role usage-policy file."
+
+  edge:
+    type: object
+    additionalProperties: false
+    required:
+      - from
+    properties:
+      from:
+        type: string
+        description: "Upstream node key this edge depends on."
+      required:
+        type: boolean
+        description: "Whether the dependency is hard (default true)."
+      when:
+        type: object
+        description: "Optional conditional predicate record."
+      backward:
+        type: boolean
+        description: >-
+          Reserved revise grammar: a reverse-direction (downstream→upstream)
+          edge. Parsed and validated but inert under the DAG executor.
+      budget:
+        type: integer
+        description: "Max re-activations for a backward revise loop (requires backward: true)."
+
+  fan_out:
+    type: object
+    additionalProperties: false
+    required:
+      - over
+    properties:
+      over:
+        type: string
+        description: "Upstream field the map node fans out over."
+
+  consolidation:
+    type: object
+    additionalProperties: false
+    required:
+      - extract
+      - adjacency_gap
+      - render
+    properties:
+      extract:
+        type: string
+        description: "Registered extract-seam key (context.extractors)."
+      adjacency_gap:
+        type: integer
+        description: "Positional gap-single-linkage grouping threshold."
+      zero_drop:
+        type: boolean
+        description: "Marks a complete-corpus reconciler: its dossier must aggregate every finding-producer (doctor Layer-8 completeness fires on it)."
+      render:
+        $ref: "#/$defs/render_spec"
+
+  render_spec:
+    type: object
+    additionalProperties: false
+    required:
+      - preamble
+      - empty_note
+      - group_prefix
+      - item_singular
+      - group_plural_label
+      - item_plural_label
+    properties:
+      preamble:
+        type: string
+        description: "Body preamble line."
+      empty_note:
+        type: string
+        description: "Line rendered when there are no records."
+      group_prefix:
+        type: string
+        description: "Group id prefix, e.g. 'C' -> '### C-1: ...'."
+      item_singular:
+        type: string
+        description: "Singular item noun, e.g. 'finding'."
+      group_plural_label:
+        type: string
+        description: "Checksum group-count label, e.g. 'Concerns'."
+      item_plural_label:
+        type: string
+        description: "Checksum item-count label, e.g. 'Findings'."
+      checksum_header:
+        type: string
+        description: "Checksum section header (default 'Count Checksum')."
+      no_group_label:
+        type: string
+        description: "Anchor label for records with no group (default '(no location)')."
+      depth:
+        type: string
+        enum: [index, "index+appendix"]
+        description: "Render depth: 'index' (compact, default) or 'index+appendix' (addressable full-record drill-down)."
+      appendix_header:
+        type: string
+        description: "Appendix section header when depth is 'index+appendix' (default 'Details')."
+
+  ovg_gate:
+    type: object
+    additionalProperties: false
+    required:
+      - gate
+    properties:
+      gate:
+        type: string
+        description: "Gate name from the composed core∪domain registry."
+      level:
+        type: string
+        enum:
+          - error
+          - warn
+        description: "Per-agent severity override; absent ⇒ gate default."
+      hint:
+        type: string
+        description: "Bundle/core hint file surfaced on failure."
+      params:
+        type: object
+        description: "Gate-specific parameters."

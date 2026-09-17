@@ -1,0 +1,17 @@
+# Canonical output shape for the Architecture specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The pattern and evidence-status fields are advisory shape guidance the
+# minimal shared schema deliberately does not constrain.
+findings:
+  - id: ARCH-001
+    category: dry_violation
+    severity: medium
+    locations:
+      - filePath: src/Formatter.cs
+        startLine: 120
+        endLine: 135
+    pattern: Date formatting logic duplicated 3 times
+    evidence_status: VERIFIED
+    description: Three handlers repeat the same date formatting branch, so future format changes can diverge.
+    fix: Extract the shared date formatting into one helper and call it from each handler.

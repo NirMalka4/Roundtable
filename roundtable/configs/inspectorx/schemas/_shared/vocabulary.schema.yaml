@@ -1,0 +1,186 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "_shared/vocabulary.schema.yaml"
+title: Canonical finding vocabulary
+description: >-
+  Single source of truth for the shared finding field vocabulary — each canonical
+  term's NAME, TYPE, and MEANING, defined exactly once. Agent finding-item schemas
+  compose from these `$defs` by local `$ref`, so the `json_schema` gate rejects a
+  wrong name/type/enum instead of the extractor guessing at it. Every `$def` carries
+  a one-line `description`; `build_schema_hint` surfaces the descriptions of the
+  terms an agent uses, so the canonical meaning reaches the agent with no per-prompt
+  copy. Enum value lists (severity/verdict/outcome/exploitability_rating/mode) live
+  ONLY here — Python derives them, never redeclares them. Every enum is a single
+  lowercase-or-fixed casing (no case-insensitive gate workarounds): the `json_schema`
+  gate enforces the exact value, so a mis-cased value is rejected, not silently coerced.
+$defs:
+
+  # ── Identity & cross-reference ──────────────────────────────────────────────
+  id:
+    description: >-
+      A finding's own stable identifier, unique within the agent that produced it.
+      This is the finding's identity — never a pointer to another finding. It is a
+      short slug/code (e.g. `TQ-001`), never a sentence: no whitespace, at most 64
+      chars — so a full-sentence value (e.g. a simulation scenario) is rejected here
+      instead of surfacing as a paragraph-length id in the published comment.
+    type: string
+    minLength: 1
+    maxLength: 64
+    pattern: '^\S+$'
+  finding_id:
+    description: >-
+      A cross-reference to ANOTHER finding's `id` (used with `source_agent` in Judge
+      overlay / validated_safe / merged_with). It is a pointer, not this record's own
+      identity — do not use it as a finding's own id.
+    type: string
+    minLength: 1
+  source_agent:
+    description: >-
+      Canonical name of the agent that produced the finding referenced by `finding_id`.
+    type: string
+    minLength: 1
+
+  # ── Classification ──────────────────────────────────────────────────────────
+  severity:
+    description: >-
+      How bad the finding is. info = an observation, not a defect; low = a minor real
+      defect; medium = an edge-case bug; high = a bug that will hit users; critical =
+      data loss, security compromise, or corruption. Ordered least→most severe.
+    type: string
+    enum: [info, low, medium, high, critical]
+  severity_blocking:
+    description: >-
+      The subset of `severity` that a blocking finding may carry — `severity` minus
+      `info`. Referenced by the OVG blocking-severity gate; the value list is NOT
+      redeclared (it composes `severity` and excludes `info`).
+    allOf:
+      - $ref: "#/$defs/severity"
+      - not: {const: info}
+  category:
+    description: >-
+      The finding's kind / taxonomy label (agent-defined free text, e.g. `logic_error`,
+      `sql_injection`). Not a closed set.
+    type: string
+    minLength: 1
+  judge_category:
+    description: >-
+      The Judge's normalized disposition bucket for a finding (Judge overlay only).
+    type: string
+    minLength: 1
+
+  # ── Text ────────────────────────────────────────────────────────────────────
+  title:
+    description: >-
+      A short, one-line finding title for display. A single line (not a paragraph):
+      at most 300 chars — a longer value is a full description misfiled as a title and
+      is rejected so it never becomes a paragraph-length headline in the comment.
+    type: string
+    minLength: 1
+    maxLength: 300
+  description:
+    description: The finding's full explanation — what is wrong and why it matters.
+    type: string
+    minLength: 1
+  fix:
+    description: >-
+      The single, ready-to-use resolution for the finding — a one-click `{language, code}`
+      suggestion object when the fix is code, otherwise a precise prose instruction naming
+      the symbol/file/change. ANY code — even multi-line or a whole new test — MUST go in
+      the `{language, code}` object so it renders as one clean block; the string form is
+      prose only and must never contain raw or fenced code (raw indentation renders as a
+      broken half-block, and a fence is defanged by the comment renderer). Must resolve the
+      grounded failure, not restate the problem or give generic advice. Consolidates the
+      former recommendation / suggestion / remediation terms into one required fix.
+    oneOf:
+      - $ref: "#/$defs/suggestion"
+      - type: string
+        minLength: 1
+  impact:
+    description: >-
+      The concrete consequence if the finding is left unfixed — who is affected and how
+      (wrong result, data loss, outage, privacy breach). One or two grounded sentences,
+      not generic boilerplate. This is the conclusion of the finding's grounding narrative.
+    type: string
+    minLength: 1
+  evidence:
+    description: >-
+      Supporting evidence for the finding, as an ordered list of short bullet strings.
+    type: array
+    items: {type: string}
+
+  # ── Anchoring & suggestion ──────────────────────────────────────────────────
+  locations:
+    description: >-
+      The anchored code location(s) the finding applies to, in the review's changed files.
+    type: array
+    items:
+      $ref: "location.schema.yaml"
+  suggestion:
+    description: >-
+      A one-click code suggestion block — a fenced replacement the developer can apply.
+    type: object
+    required: [language, code]
+    properties:
+      language: {type: string, minLength: 1}
+      code: {type: string, minLength: 1}
+
+  # ── Judge verdict ───────────────────────────────────────────────────────────
+  verdict:
+    description: >-
+      The Judge's overall review verdict. APPROVE = production-safe; APPROVE_WITH_SUGGESTIONS
+      = only non-blocking issues; REJECT = a blocking issue exists. (The runtime-only
+      `UNKNOWN` fallback is not an emittable value.)
+    type: string
+    enum: [APPROVE, APPROVE_WITH_SUGGESTIONS, REJECT]
+
+  # ── Exploit / attack-surface domain terms ───────────────────────────────────
+  exploitability_rating:
+    description: >-
+      How hard the finding is to exploit. trivial = no barrier; easy = an authenticated
+      or low-skill actor; moderate = some conditions must align; hard = a narrow,
+      high-effort path; not_exploitable = assessed and confirmed unreachable/safe;
+      unknown = not yet assessed. Ordered easiest→hardest, then not_exploitable, unknown last.
+    type: string
+    enum: [trivial, easy, moderate, hard, not_exploitable, unknown]
+  exploitability:
+    description: >-
+      An exploitability assessment for a finding — a rating plus the reasoning behind it.
+    type: object
+    required: [rating]
+    properties:
+      rating:
+        $ref: "#/$defs/exploitability_rating"
+      reasoning: {type: string, minLength: 1}
+
+  # ── Control selectors ────────────────────────────────────────────────────────
+  mode:
+    description: >-
+      A simulation pass selector. standard = forward "does it work" simulation; inverted =
+      adversarial "how does it break" simulation. Chooses which detail arrays are mandatory.
+    type: string
+    enum: [standard, inverted]
+
+  # ── Simulation domain terms (reusable across simulation-style agents) ────────
+  outcome:
+    description: >-
+      The result of a simulated scenario. PASS = behaved correctly (not a finding);
+      FAILURE = broke; CRITICAL_FAILURE = broke severely.
+    type: string
+    enum: [PASS, FAILURE, CRITICAL_FAILURE]
+  scenario:
+    description: The name of a simulated scenario.
+    type: string
+    minLength: 1
+  vulnerability:
+    description: The weakness a failed scenario exposes.
+    type: string
+    minLength: 1
+  trace:
+    description: An ordered list of execution / reasoning steps.
+    type: array
+    items: {type: string}
+
+  # ── Severity-inflation domain terms ─────────────────────────────────────────
+  original_severity:
+    description: >-
+      A finding's baseline `severity` before the SeverityInflator applies its multipliers.
+    $ref: "#/$defs/severity"

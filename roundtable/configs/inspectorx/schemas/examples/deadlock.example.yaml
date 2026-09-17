@@ -1,0 +1,40 @@
+# Canonical output shape for the Deadlock specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The lock graph and cross-diff findings are advisory shape guidance the
+# minimal shared schema deliberately does not constrain.
+summary:
+  verdict: 1 confirmed deadlock
+  scope: Changed lock acquisition paths in OrderService and InventoryService.
+  patterns_checked:
+    - lock ordering
+    - async blocking
+    - unsynchronized shared state
+findings:
+  - id: DLK-001
+    category: lock_ordering
+    severity: high
+    locations:
+      - filePath: src/OrderService.cs
+        startLine: 120
+        endLine: 135
+    evidence_status: VERIFIED
+    description: OrderService acquires `orderLock` then `inventoryLock`, reversing the existing inventory update path.
+    scenario: Thread A holds `orderLock` and waits for `inventoryLock` while Thread B holds `inventoryLock` and waits for `orderLock`.
+    fix: Acquire `inventoryLock` before `orderLock` consistently, or collapse the critical section behind one coordinator lock.
+lock_graph:
+  nodes:
+    - orderLock
+    - inventoryLock
+  edges:
+    - from: orderLock
+      to: inventoryLock
+      location: src/OrderService.cs:120-135
+    - from: inventoryLock
+      to: orderLock
+      location: src/InventoryService.cs:88-101
+cross_diff_findings:
+  - lock: orderLock
+    existing_order: inventoryLock -> orderLock
+    new_order: orderLock -> inventoryLock
+    evidence: src/OrderService.cs:120-135 reverses the acquisition order used by src/InventoryService.cs:88-101.

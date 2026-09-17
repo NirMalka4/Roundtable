@@ -1,0 +1,41 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: historian.schema.yaml
+title: historian agent output
+description: >-
+  Legacy custom contract: required 'execution_mode' (fixed enum, CASE-SENSITIVE in legacy
+  so a plain schema enum is faithful), a 'churn_analysis' object, and an 'incident_warnings'
+  array. All three are typed, so null is rejected.
+type: object
+required: [execution_mode, churn_analysis, incident_warnings]
+properties:
+  execution_mode:
+    type: string
+    enum: [lightweight, deep]
+  churn_analysis:
+    type: object
+  incident_warnings:
+    type: array
+examples:
+  - execution_mode: lightweight
+    churn_analysis:
+      files_analyzed: 3
+      high_churn_files:
+        - auth.ts
+      churn_threshold_exceeded: true
+    incident_warnings:
+      - file: userCache.ts
+        warning: Prior hotfix touched the same flow path.
+        source: commit abc123
+        severity: warning
+    regression_risk:
+      - file: auth.ts
+        prior_commit: abc1234
+        prior_message: 'hotfix: null check in auth flow'
+        overlap_type: OVERRIDE
+        lines_affected: 45-52
+        description: Current diff modifies the same auth-flow lines as the prior hotfix.
+    chesterton_fences:
+      - fence: The null-session guard in auth.ts
+        blamed_commit: abc1234
+        blamed_message: 'hotfix: null check in auth flow'
+    no_historical_concerns: false

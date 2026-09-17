@@ -1,0 +1,71 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: attacksurface.schema.yaml
+title: AttackSurfaceScanner agent output
+description: >-
+  Structural contract for the attack-surface scanner (agent_id 'attacksurface'). Like
+  the other warn-floor finding agents it has no per-item schema, but its legacy
+  semantic contract required an extra top-level presence field, 'categories_checked'
+  (its coverage manifest), in addition to 'findings'. Both are required here; the
+  finding-item shape stays unconstrained and the location/grounding/phrase checks run
+  as WARN-level gates. Other top-level keys (verdict, scope, catalog_coverage, …) are
+  allowed.
+type: object
+required: [findings, categories_checked]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: Zero or more attack-surface findings; empty is a valid clean result.
+    items:
+      type: object
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        locations: {$ref: "_shared/vocabulary.schema.yaml#/$defs/locations"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+        trace: {$ref: "_shared/vocabulary.schema.yaml#/$defs/trace"}
+        impact: {$ref: "_shared/vocabulary.schema.yaml#/$defs/impact"}
+        exploitability: {$ref: "_shared/vocabulary.schema.yaml#/$defs/exploitability"}
+  categories_checked:
+    type: array
+    description: The attack-surface categories this scan covered (coverage manifest).
+examples:
+  - verdict: fail
+    categories_checked:
+      - injection
+      - auth-bypass
+      - ssrf
+    coverage:
+      checked:
+        - injection
+        - auth-bypass
+        - ssrf
+      not_applicable:
+        - cryptography
+    findings:
+      - id: ASS-001
+        sec_check_id: SEC-037
+        category: Input Validation & Injection
+        severity: critical
+        title: SQL injection in search parameter
+        trace:
+          - User input arrives via the `search` query parameter (line 38).
+          - It is passed to SearchService.Find(search) unsanitized (line 40).
+          - The value is concatenated into a raw SQL string (line 42).
+          - Attacker calls GET /api/search?q='; DROP TABLE Users;-- and the injected SQL executes.
+        exploitability:
+          rating: easy
+          reasoning: An unauthenticated caller can inject SQL directly via the search parameter.
+        impact: Arbitrary SQL execution allows reading or destroying other tenants' data.
+        locations:
+          - filePath: src/services/SearchService.cs
+            startLine: 38
+            endLine: 42
+        fix: |
+          Use a parameterized query and validate the `search` parameter at the controller.
+        context_check:
+          audit_mode: false
+          affects_production: true
+          feature_flagged: false

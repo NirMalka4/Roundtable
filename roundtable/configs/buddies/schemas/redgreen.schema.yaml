@@ -1,0 +1,211 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "redgreen.schema.yaml"
+title: RedGreen output contract
+description: >-
+  RedGreen's test-quality and risk-weighted coverage review of a target, emitted as
+  one JSON object. Self-contained: every field is defined here, so this schema is the
+  single source of truth for the agent's output shape and the runtime appends it
+  verbatim as the agent's `## Output contract`.
+preface: >-
+  You return your report as a single JSON object because the engine reconciles test
+  gaps with other reviewers by ID, severity, and grounded location. The native
+  contract's role-tagged `anchors` are kept as normalized `{filePath, startLine,
+  endLine, role}` objects so each gap can be pinned to the untested path, weak test, or
+  requirement source. The verdict is still computed from the highest finding severity;
+  JSON only makes that computation explicit and machine-checkable.
+type: object
+additionalProperties: false
+required: [intent, verdict, findings]
+properties:
+  intent:
+    type: string
+    description: >-
+      The Phase 1 spec: 2-5 sentences of intent, then the derived requirements as
+      testable claims, and the classification (or `mixed`) with the specific execution
+      path(s) and the test-expectation bar. Tag each requirement inline with its
+      coverage status -- `covered` or `RG-NN` -- so a well-tested target still shows
+      what was checked and found covered, not silence.
+  verdict:
+    type: string
+    enum: [blocking gaps, gaps to address before merge, adequately tested]
+    description: >-
+      The verdict is computed from the highest finding severity, not judged: any High
+      -> `blocking gaps`; top is Medium -> `gaps to address before merge`; only Low or
+      none -> `adequately tested`.
+  findings:
+    type: array
+    description: A list, one entry per gap, sorted by severity (High first).
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors}
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title, severity, anchors, reasoning, evidence, remediation]
+      properties:
+        id:
+          type: string
+          pattern: '^RG-\d{2}$'
+          description: Stable (`RG-01`, `RG-02`, ...) so comments/threads can reference it.
+        title:
+          type: string
+          minLength: 1
+          description: >-
+            A 3-6 word summary of the gap (e.g. "Expired-token branch untested") so the
+            list is scannable and the ID is memorable when cited in a thread. Not a
+            restatement of the severity or the anchor path.
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: From the rubric matrix (+ safety-net discount).
+        anchors:
+          type: array
+          minItems: 1
+          description: >-
+            One or more `path:line_start-line_end`, each role-tagged so the reader
+            knows what it proves: `untested-path` (the risk site in production code),
+            `weak-test` (the vacuous/flaky/over-mocked test), or `requirement` (the spec
+            source). Every claim in `reasoning` must trace to an anchor.
+          items:
+            type: object
+            additionalProperties: false
+            required: [filePath, startLine, endLine, role]
+            properties:
+              filePath: {type: string, minLength: 1, description: The cited path that grounds this anchor.}
+              startLine: {type: integer, minimum: 1, description: The first cited line for this anchor.}
+              endLine: {type: integer, minimum: 1, description: The last cited line for this anchor.}
+              role:
+                type: string
+                enum: [untested-path, weak-test, requirement]
+                description: >-
+                  `untested-path` (the risk site in production code), `weak-test` (the
+                  vacuous/flaky/over-mocked test), or `requirement` (the spec source).
+        reasoning:
+          type: string
+          minLength: 1
+          description: >-
+            The justification, citing its anchors: what's missing/weak (against which
+            requirement); why it matters (what could ship broken / what implementation
+            flaw it hides); the severity axes (Impact/Likelihood/Safety-net -> matrix
+            cell); and a `confidence: high/med/low` when it isn't obvious. The evidence
+            basis is carried structurally by `evidence`, not restated here.
+        evidence:
+          type: string
+          enum: [measured, inferred]
+          description: >-
+            The evidence basis for this gap. `measured` = you actually ran the relevant
+            EXISTING tests and/or a coverage report and cite the tool's real output;
+            `inferred` = reasoned from reading the code/tests without a successful run. A
+            drafted (unrun) test is ALWAYS `inferred`. Claim `measured` only when a
+            successful test/coverage command in this reviewer attempt backs it. The
+            engine rejects an unbacked `measured` value and requires `inferred`.
+            Telemetry is attempt-wide, not finding-specific: one successful run permits
+            the tag but does not prove every finding was individually measured.
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable test remediation draft. The proposal states the complete
+            test intent and setup; the illustration shows the critical assertion or
+            fixture without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: how the drafted test
+                exercises the proven gap, which observable regression would make it fail,
+                and why it is stronger than the existing coverage. Do not repeat the checks'
+                local observations or claim the unrun draft passed.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming the test location, setup,
+                exercised path, observable assertion, and relevant fixture changes.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative test code showing the critical setup and assertion. It
+                is explanatory, incomplete as a patch, and was not run.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at the production path, assertion boundary, and
+                nearby tests. Each observation states what is true locally; the rationale
+                synthesizes why those facts make the draft stronger than existing coverage.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known path, setup assumption, or test-harness detail the draft does
+                not settle. Empty does not mean the draft was executed or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+examples:
+  - intent: >-
+      Adds an expiry check to token validation so expired JWTs are rejected. Requirements:
+      valid unexpired token accepted (covered by Validate_ValidToken_Accepts), expired
+      token rejected (RG-01), malformed token rejected without throwing (covered).
+      Classification: extends an existing flow -- the new expired-token branch must be exercised.
+    verdict: blocking gaps
+    findings:
+      - id: "RG-01"
+        title: "Expired-token branch untested"
+        severity: high
+        anchors:
+          - filePath: src/auth/TokenValidator.cs
+            startLine: 42
+            endLine: 57
+            role: untested-path
+          - filePath: test/auth/TokenValidatorTests.cs
+            startLine: 20
+            endLine: 34
+            role: weak-test
+        reasoning: >-
+          The expired-token branch (anchor 1) has no test; the nearest test (anchor 2)
+          asserts on its own mock, so an expired token would authenticate and no test would
+          fail. Impact: high; Likelihood: med; Safety net: none -> matrix High, no discount.
+          Confidence: high.
+        evidence: inferred
+        remediation:
+          rationale: >-
+            This test drives the uncovered expired-token branch and asserts the externally
+            visible validity result, so accepting an expired token would fail the assertion.
+            It is stronger than the reviewed mock-based coverage because it checks the
+            validator outcome rather than an interaction the mock can satisfy itself.
+          proposal: >-
+            Add a TokenValidator test beside the existing valid-token case. Build an
+            expired token through the repository fixture, invoke Validate, and assert the
+            returned validity value is false without asserting mock interactions.
+          illustration: |-
+            [Fact]
+            public void Validate_ExpiredToken_IsRejected() =>
+                Assert.False(_sut.Validate(ExpiredToken()).IsValid);
+          language: csharp
+          checks:
+            - filePath: src/auth/TokenValidator.cs
+              startLine: 42
+              endLine: 57
+              observation: The expiry branch returns the externally visible validity result the draft asserts.
+            - filePath: test/auth/TokenValidatorTests.cs
+              startLine: 20
+              endLine: 34
+              observation: The nearest test asserts a mock interaction and does not exercise an expired token outcome.
+          limitations:
+            - The draft was not executed, so fixture construction and repository-specific assertion details remain to be confirmed.

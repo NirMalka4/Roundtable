@@ -1,0 +1,45 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: finding_min.schema.yaml
+title: Minimal finding-archetype output
+description: >-
+  Shared structural contract for the baseline finding agents (code_correctness,
+  deadlock, docskeeper, testquality, dependency, architecture, privacy). The
+  block-level (error) floor is deliberately minimal: 'findings' is present and is an
+  array, and every finding carries an 'id'. The id IS load-bearing — the specialist
+  finding index drops any id-less finding (it can never be referenced by the Judge
+  overlay, counted, or published), and every richer finding schema already requires
+  id, so requiring it here keeps all finding agents consistent on index integrity.
+  The descriptive fields (title, severity, description) are NOT blocking here; they
+  are checked advisory (warn) via the companion 'finding_recommended.schema.yaml',
+  wired as a second, warn-level json_schema gate. The grounded-locations, generic
+  phrase and locations structural checks likewise run as WARN-level gates. Extra
+  top-level keys (e.g. orphan_assessments, lock_graph) are allowed.
+type: object
+required: [findings]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: Zero or more findings; an empty array is a valid (clean) result.
+    items:
+      type: object
+      required: [id]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+examples:
+  - findings:
+      - id: TQ-001
+        category: coverage_gap
+        severity: high
+        title: New error-state rendering branch has no unit coverage
+        description: >-
+          The change adds ~17 lines of error-state conditional rendering to a component
+          that has no unit test file; the error branch is only exercised by a slow CI
+          smoke spec, so condition/prop-wiring regressions would escape unit testing.
+        locations:
+          - filePath: packages/protection/src/suppression-rules/suppression-rules-page/suppression-rules-list-component.tsx
+            startLine: 120
+            endLine: 143
+        fix: >-
+          Add a unit test for the error-state branch (assert the error EmptyState
+          renders for a 403 response) in a new suppression-rules-list-component.test.tsx.

@@ -1,0 +1,23 @@
+# Canonical output shape for the DocsKeeper specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The richer docs/code evidence fields are advisory shape guidance the
+# minimal shared schema deliberately does not constrain.
+findings:
+  - id: DOC-DRIFT-001
+    category: docs_code_drift
+    type: API Change
+    severity: medium
+    title: README still documents the old timeout option name
+    description: README documents `Config.Timeout`, but code renamed the option to `Config.RequestTimeoutMs`.
+    affected_api: Config.RequestTimeoutMs
+    locations:
+      - filePath: README.md
+        startLine: 128
+        endLine: 128
+    code_location: UserService.cs:42
+    code_evidence: "public int RequestTimeoutMs { get; set; }  // was: Timeout"
+    docs_location: README.md:128
+    docs_evidence: "Set `Config.Timeout` to configure the request timeout (default: 30s)"
+    evidence_status: VERIFIED
+    fix: Update README.md line 128 to replace `Config.Timeout` with `Config.RequestTimeoutMs`.

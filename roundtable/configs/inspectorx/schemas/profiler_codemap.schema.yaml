@@ -1,0 +1,67 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: profiler_codemap.schema.yaml
+title: profiler_codemap agent output
+description: >-
+  Reproduces the legacy custom contract: a non-empty 'critical_paths' array whose items
+  each carry file/method/risk/reason, a 'data_flow_map' object, and an optional
+  'file_risk_scores' array. minItems folds in the legacy semantic 'required' empty-array
+  check; the object/array types reject null (legacy treats null as absent).
+type: object
+required: [critical_paths, data_flow_map]
+properties:
+  critical_paths:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required: [file, method, risk, reason]
+  data_flow_map:
+    type: object
+  file_risk_scores:
+    type: array
+examples:
+  - critical_paths:
+      - file: packages/protection/src/suppression-rules/create-suppression-rule/create-suppression-rule.store.ts
+        method: saveSuppressionRule
+        risk: High
+        reason: Handles user-supplied rule payloads and mutates shared store state on the error path.
+    data_flow_map:
+      entry_points:
+        - id: EP-001
+          source: HTTP POST /api/orders
+          data_type: OrderRequest (DTO)
+          validation: Validated by OrderValidator.Validate()
+          trust_level: UNTRUSTED
+      transformations:
+        - step: 1
+          id: TF-001
+          location: OrderService.CreateOrder:42
+          input: OrderRequest
+          output: Order (domain entity)
+          operation: Map DTO to domain model + business validation
+          data_flow_from: EP-001
+      exit_points:
+        - id: EX-001
+          sink: Database - Orders table
+          data_type: Order row
+          data_flow_from: TF-001
+      variable_contexts:
+        - variable: data
+          location: OrderService.cs:42
+          flow_id: TF-001
+          actual_purpose: Holds validated Order entity after DTO mapping
+          suggested_name: validatedOrder
+      change_impact:
+        intersected_flows: []
+        new_flows: []
+        ripple_effects: []
+    file_risk_scores:
+      - file: create-suppression-rule.store.ts
+        risk_score: 0.8
+        tier: tier_1_deep
+        factors:
+          - security_path
+          - large_change
+          - async
+        lines_changed: 120
+    privacy_required: true

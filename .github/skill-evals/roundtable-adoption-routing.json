@@ -1,0 +1,48 @@
+{
+  "skill": "roundtable-adoption",
+  "measured": false,
+  "prompts": [
+    {
+      "id": "collect-one-pr",
+      "class": "should-fire",
+      "text": "Pull the recorded Roundtable usage data for PR 123 and verify that its metadata was captured."
+    },
+    {
+      "id": "repository-adoption",
+      "class": "should-fire",
+      "text": "How many pull requests in this ADO repository have been reviewed by Roundtable, split by configuration?"
+    },
+    {
+      "id": "finding-segmentation",
+      "class": "should-fire",
+      "text": "Break down our recorded review findings by severity and source reviewer."
+    },
+    {
+      "id": "standalone-dashboard",
+      "class": "should-fire",
+      "text": "Generate an offline dashboard where I can open the reviewed PRs and audit the serious verdicts."
+    },
+    {
+      "id": "run-review",
+      "class": "near-miss",
+      "expect": "roundtable-review",
+      "text": "Run Buddies on this pull request and publish the findings."
+    },
+    {
+      "id": "evaluation-pr",
+      "class": "near-miss",
+      "expect": "roundtable-evaluation-pr",
+      "text": "Recreate a merged change as an evaluation draft and see when Roundtable detects its bug."
+    },
+    {
+      "id": "modify-collector",
+      "class": "should-not-fire",
+      "text": "Refactor the adoption collector so it uses less memory."
+    },
+    {
+      "id": "generic-html",
+      "class": "should-not-fire",
+      "text": "Build a static HTML status page for this service."
+    }
+  ]
+}

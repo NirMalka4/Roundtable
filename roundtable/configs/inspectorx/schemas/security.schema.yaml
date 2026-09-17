@@ -1,0 +1,56 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: security.schema.yaml
+title: Security agent output
+description: >-
+  Structural contract for the Security specialist. Reproduces the legacy
+  finding-archetype schema for agent_id 'security': a required 'findings' array whose
+  items are objects carrying the five required keys. Field TYPES beyond object-ness and
+  the deeper evidence floor (grounded locations[], proof depth for high-severity
+  findings) are enforced by the wired 'locations_floor' / 'proof_depth' /
+  'grounded_locations' gates, NOT here — this schema stays exactly as strict as the
+  legacy AGENT_SCHEMAS['security'] row (presence of keys only), so block-parity holds.
+type: object
+required: [findings]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: One entry per security defect found in the changed code.
+    items:
+      type: object
+      required: [id, title, severity, locations, description]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        locations: {$ref: "_shared/vocabulary.schema.yaml#/$defs/locations"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+        exploitability: {$ref: "_shared/vocabulary.schema.yaml#/$defs/exploitability"}
+        trace: {$ref: "_shared/vocabulary.schema.yaml#/$defs/trace"}
+        impact: {$ref: "_shared/vocabulary.schema.yaml#/$defs/impact"}
+examples:
+  - findings:
+      - id: SEC-001
+        cwe_id: CWE-89
+        category: Data Protection
+        severity: high
+        title: Unparameterized SQL concatenation in tenant-scoped query
+        description: Unparameterized SQL concatenation allows tenant-controlled input to alter the query predicate.
+        locations:
+          - filePath: src/repo/UserRepo.cs
+            startLine: 42
+            endLine: 47
+        exploitability:
+          rating: easy
+          reasoning: An authenticated tenant can provide a crafted user id that changes the SQL predicate.
+        trace:
+          - Send a request with a user id containing `' OR 1=1 --`.
+          - Observe the generated query returns rows outside the intended tenant predicate.
+        impact: Allows an authenticated tenant to enumerate other tenants' rows.
+        fix: Replace string concatenation with parameterized SqlCommand parameters.
+        compliance_standard: OWASP A03
+    compliance_issues:
+      - standard: OWASP A03
+        violation: Injection risk from concatenating tenant-controlled input into SQL.
+        remediation: Parameterize the query and add a regression test for crafted identifiers.

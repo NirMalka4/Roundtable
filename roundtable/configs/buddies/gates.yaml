@@ -1,0 +1,101 @@
+# ─── OVG domain gate manifest (buddies task-specific gates) ───────────────────
+#
+# The DOMAIN half of the gate manifest for the buddies config. Engine-core universal
+# gates (json_schema, …) live in validation/gates_core.yaml and are composed in
+# automatically — do NOT redeclare them here (a collision is rejected).
+#
+# Buddies findings pin their evidence with a per-finding `anchors` array (one field
+# name across all six reviewers). The reusable `grounded_locations` fn is field-name
+# agnostic: it derives the finding array + path field from this gate's own `requires`
+# path (the same SSOT the doctor walks against each agent's schema), so the callable
+# carries zero Python field-name knowledge.
+#
+#   fn            : registered callable (validation/gates.py); defaults to the gate name
+#   default_level : 'error' | 'warn' — level the runner stamps unless per-agent override
+#   default_hint  : configs/buddies/hints/<name>.md corrective-feedback file
+#   requires      : field-paths the gate reads; drives the doctor schema<->gate coherence
+#                   check AND (for grounding gates) the field names the fn reads at runtime.
+
+gates:
+  # Every cited anchor must land on a file that is part of this change.
+  grounded_anchors:
+    fn: grounded_locations
+    default_level: warn
+    default_hint: grounded_anchors
+    requires:
+      - findings[].anchors[].filePath
+
+  # Enforced zero-drop for the Judge: every reviewer finding in the run (the
+  # `upstream_finding_ids` universe the node handler injects) must be adjudicated by at
+  # least one claim via its `source_finding_ids`. Replaces the consolidation dossier's
+  # prompt-only "account for every finding" checksum with a hard completeness gate.
+  claims_coverage:
+    fn: claims_coverage
+    default_level: error
+    default_hint: claims_coverage
+    requires:
+      - claims[].source_finding_ids
+
+  # The Judge selects the strongest claim source for anchoring and attribution.
+  # It must be one of the reviewer findings adjudicated as that proposition.
+  primary_source_selection:
+    fn: primary_source_selection
+    default_level: error
+    default_hint: primary_source_selection
+    requires:
+      - claims[].source_finding_ids
+      - claims[].primary_source_finding_id
+
+  # One non-applyable reviewer draft with proposal, illustration, investigation
+  # seeds, and explicit limitations.
+  remediation_draft_shape:
+    fn: remediation_draft_shape
+    default_level: error
+    default_hint: remediation_draft_shape
+    requires:
+      - findings[].remediation
+
+  # One exact publish/withhold decision per eligible Judge claim, grounded only in
+  # supplied draft content or successful read-only evidence.
+  remediation_decisions:
+    fn: remediation_decisions
+    default_level: error
+    default_hint: remediation_decisions
+    requires:
+      - decisions[].claim_id
+      - decisions[].primary_source_finding_id
+      - decisions[].reason
+      - decisions[].evidence
+
+  # E-FAITH: a finding that claims `measured` evidence must be backed by a successful
+  # test/coverage run (bound per-agent from the run's tool_calls telemetry). The
+  # RedGreen graph wiring raises this to ERROR so unbacked claims retry as `inferred`;
+  # the shared default remains advisory for any future consumer.
+  execution_backed_evidence:
+    fn: execution_backed_evidence
+    default_level: warn
+    default_hint: execution_backed_evidence
+    requires:
+      - findings[].evidence
+
+  # A claim's disposition and severity form one adjudication cell. The backend derives
+  # the release effect from that cell, and the aggregate verdict metadata from those
+  # effects.
+  claim_consistency:
+    fn: claim_consistency
+    default_level: error
+    default_hint: claim_consistency
+    requires:
+      - claims[].disposition
+      - claims[].severity
+
+  # Judge evidence is the only grounding published on a thread, so a cited file must
+  # be part of this change for a reader to open it there. Advisory because a genuine
+  # verification may legitimately cite an unchanged caller — the same reason
+  # `grounded_anchors` warns rather than blocks.
+  grounded_evidence:
+    fn: grounded_locations
+    default_level: warn
+    default_hint: grounded_evidence
+    requires:
+      - claims[].evidence[].file

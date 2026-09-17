@@ -1,0 +1,15 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: suggestion_publisher.schema.yaml
+title: suggestion_publisher agent output
+description: >-
+  Terminal publisher envelope. Legacy contract is a single presence rule: a non-null
+  'chat_confirmation' summarising what was posted. No real artifact exists for this agent
+  (it is side-effecting), so the example is crafted to the contract.
+type: object
+required: [chat_confirmation]
+properties:
+  chat_confirmation:
+    not: {type: "null"}
+examples:
+  - chat_confirmation: >-
+      Posted 2 inline suggestions and 1 summary comment to the pull request.

@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install contributor dependencies
+        run: python -m pip install --disable-pip-version-check -e ".[dev,lint,types]"
+      - name: Run authoritative gates
+        run: python scripts/gates.py
+
+  clean-install:
+    name: Clean install (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        python-version:
+          - "3.12"
+          - "3.13"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Configure isolated install paths
+        shell: pwsh
+        run: |
+          "UV_TOOL_DIR=$(Join-Path $env:RUNNER_TEMP 'roundtable-uv-tools')" >> $env:GITHUB_ENV
+          "UV_TOOL_BIN_DIR=$(Join-Path $env:RUNNER_TEMP 'roundtable-uv-bin')" >> $env:GITHUB_ENV
+          "UV_CACHE_DIR=$(Join-Path $env:RUNNER_TEMP 'roundtable-uv-cache')" >> $env:GITHUB_ENV
+          "PIP_CACHE_DIR=$(Join-Path $env:RUNNER_TEMP 'roundtable-pip-cache')" >> $env:GITHUB_ENV
+      - name: Install from checkout
+        shell: pwsh
+        run: python scripts/bootstrap.py --no-update-shell
+      - name: Rehearse installed CLI
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          $roundtable = Join-Path $env:UV_TOOL_BIN_DIR "roundtable$suffix"
+          $expectedVersion = python -c "import runpy; print(runpy.run_path('roundtable/_version.py')['__version__'])"
+          $installedVersion = & $roundtable --version
+          if ($installedVersion -ne "roundtable $expectedVersion") {
+            throw "Expected roundtable $expectedVersion, found $installedVersion"
+          }
+          & $roundtable doctor --static
+
+          git config user.name "Roundtable CI"
+          git config user.email "roundtable-ci@example.invalid"
+          "clean-install rehearsal" | Set-Content .roundtable-ci-rehearsal
+          git add .roundtable-ci-rehearsal
+          git commit -m "Create clean-install rehearsal commit"
+
+          $artifacts = Join-Path $env:RUNNER_TEMP "roundtable-review-artifacts"
+          & $roundtable review . --base-branch HEAD~1 --simulate --artifacts-dir $artifacts
+          $traces = @(Get-ChildItem $artifacts -Filter trace.json -Recurse)
+          if ($traces.Count -ne 1) {
+            throw "Expected one simulated review trace, found $($traces.Count)"
+          }
+          $report = Join-Path $env:RUNNER_TEMP "roundtable-review-report.html"
+          & $roundtable report $traces[0].DirectoryName --output $report --no-open
+          if (-not (Test-Path $report -PathType Leaf)) {
+            throw "Roundtable did not render $report"
+          }

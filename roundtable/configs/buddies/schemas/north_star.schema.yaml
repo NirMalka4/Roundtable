@@ -1,0 +1,301 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "north_star.schema.yaml"
+title: North Star output contract
+description: >-
+  North Star's structural/architectural review of a single change, emitted as one JSON
+  object. Self-contained: every field is defined here, so this schema is the single
+  source of truth for the agent's output shape and the runtime appends it verbatim as
+  the agent's `## Output contract`.
+preface: >-
+  You return your report as a single JSON object because the engine consolidates,
+  ranks, and (on publish) anchors your findings mechanically — free-form prose cannot
+  be grounded to a code location or reconciled with peer reviewers. Every finding must
+  be verifiable from the evidence you cite, which is why each carries its own
+  `anchors`; `intent` travels separately so the Judge and the author can see how you
+  understood the change.
+type: object
+additionalProperties: false
+required: [intent, findings]
+properties:
+  intent:
+    type: string
+    description: >-
+      The rationale you **inferred from the change itself**: what the author is trying
+      to achieve, traced through the actual data/control flow (for code) or walked as a
+      hostile reader who follows every link and tries every example (for docs/designs).
+      Note any divergence from a stated goal rather than adopting it. If the artifact is
+      too ambiguous or incomplete to infer a rationale, set this to `"indeterminate from
+      artifact"` followed by the observed behaviors you *could* establish — do not invent
+      intent.
+  findings:
+    type: array
+    description: >-
+      A flat list, sorted by `severity` descending. Empty (`[]`) is a valid result —
+      never manufacture a finding, and never emit a style or execution-bug observation
+      as a low finding.
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors, excerpt: excerpt}
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title, severity, explanation, anchors, remediation]
+      properties:
+        id:
+          type: string
+          pattern: '^NS-\d{2}$'
+          description: >-
+            `NS-` followed by a zero-padded 2-digit index by position in this sorted list
+            (`"NS-01"`, `"NS-02"`).
+        title:
+          type: string
+          minLength: 1
+          description: One-line headline naming the concern.
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: >-
+            One of `high` | `medium` | `low`, per the Severity rubric in your instructions
+            — assign the highest tier whose trigger you can PROVE from cited anchors.
+        explanation:
+          type: string
+          minLength: 1
+          description: >-
+            The observable symptom, the blast-radius verdict, and why the fix resolves the
+            symptom.
+        anchors:
+          type: array
+          minItems: 1
+          description: >-
+            The evidence a reader uses to verify the claim. At least one entry **must** be
+            the changed artifact (`source: code` or `source: doc`). Show the concrete
+            failure/scenario, not a missing practice or an arguable possibility.
+          contains:
+            type: object
+            properties:
+              source:
+                enum: [code, doc]
+          items:
+            type: object
+            additionalProperties: false
+            required: [source, excerpt]
+            properties:
+              source:
+                type: string
+                enum: [code, doc, pr, work-item, wiki, dependency-graph]
+                description: >-
+                  The kind of evidence this anchor points at, which also decides whether
+                  `filePath` is set: `code` (a source file in the checkout) and `doc` (a
+                  doc file in the checkout) carry a real path and line range;
+                  `pr` (the pull-request description or a review thread), `work-item` (a
+                  linked story, bug, or requirement), `wiki` (a page outside the
+                  checkout), and `dependency-graph` (a package, manifest, or build-graph
+                  relationship) have no file to cite, so set `filePath: null` and let the
+                  `excerpt` carry the quoted id, page name, or query.
+              filePath:
+                type: [string, "null"]
+                description: >-
+                  The changed-file path this anchor pins (for `source: code`/`doc`). Null for
+                  non-file sources (`pr`/`work-item`/`wiki`/`dependency-graph`), whose locus is
+                  carried by `excerpt`.
+              startLine:
+                type: [integer, "null"]
+                description: Start line in `filePath` (null when not a file anchor).
+              endLine:
+                type: [integer, "null"]
+                description: End line in `filePath` (null when not a file anchor).
+              excerpt:
+                type: string
+                minLength: 1
+                description: >-
+                  A short quoted string from that source — the id, page name, query, or the
+                  exact line(s) — that lets a reader locate and contest the claim. For a file
+                  anchor (`filePath` set), quote the **exact bytes** at `startLine`–`endLine`:
+                  no elision (`…`/`...`), no paraphrase, no newline-join. The engine re-derives
+                  this field verbatim from the checkout at those lines, overwriting any drift.
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable remediation draft. The proposal names the complete
+            structural change, migration, and ownership work; the illustration shows
+            the critical target structure without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: how the target structure
+                corrects the proven placement, ownership, compatibility, or drift problem
+                and why it is better than the reviewed structure after accounting for blast
+                radius and reversibility. Do not repeat the checks' local observations or
+                the issue proof.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming ownership, affected consumers,
+                compatibility directions, migration order, and cleanup steps.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative code, configuration, or pseudocode showing the target
+                boundary. It is explanatory and never a complete or applyable patch.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at consumers, compatibility boundaries, migration
+                steps, and rollback edges. Each observation states what is true locally;
+                the rationale synthesizes why those facts support the target structure.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known consumer, migration step, assumption, or dependency the
+                draft does not settle. Empty does not mean it was executed or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+examples:
+  - intent: >-
+      Route orders to a regional backend by threading a client-supplied region through
+      the order API. Inferred from OrderController reading req.region and passing it to
+      two schedulers; no work item was linked.
+    findings:
+      - id: "NS-01"
+        title: New required request field breaks old clients against the new producer
+        severity: high
+        explanation: >-
+          region is added as required on POST /v1/orders, but existing v1 clients never
+          send it. During rollout, old clients hit the new producer and are rejected — a
+          mixed-version outage, not a local bug. Making region optional with a server-side
+          default keeps both directions compatible.
+        anchors:
+          - source: code
+            filePath: src/api/order_schema.ts
+            startLine: 41
+            endLine: 41
+            excerpt: "region: z.string()  // required"
+          - source: dependency-graph
+            filePath: null
+            startLine: null
+            endLine: null
+            excerpt: "consumers of orders-api v1: checkout-web, partner-sync still on v1 client"
+        remediation:
+          rationale: >-
+            Keeping the v1 field optional preserves compatibility for the cited old clients,
+            while resolving the default once at ingestion gives downstream code one complete
+            value. That staged boundary is safer than making every existing caller satisfy a
+            new required contract during rollout.
+          proposal: >-
+            Keep region optional in the v1 request schema, resolve the default once in
+            the API ingestion layer, and pass the resolved value to both schedulers.
+            Tighten the request contract only after the named v1 consumers have migrated.
+          illustration: |-
+            const requestSchema = z.object({ region: z.string().optional() });
+            const region = request.region ?? DEFAULT_REGION;
+            scheduleOrder({ ...order, region });
+          language: ts
+          checks:
+            - filePath: src/api/order_schema.ts
+              startLine: 41
+              endLine: 41
+              observation: The reviewed schema makes region immediately mandatory at the existing v1 boundary.
+          limitations:
+            - The available dependency-graph evidence names old clients but provides no exact repository locations for their upgrade state.
+      - id: "NS-02"
+        title: Default region computed at two sites that can drift
+        severity: medium
+        explanation: >-
+          Two hand-written call sites recompute the default region string independently; a
+          later edit to one leaves them disagreeing silently. Compute it once at the
+          boundary and pass it down.
+        anchors:
+          - source: code
+            filePath: src/scheduler/us.ts
+            startLine: 88
+            endLine: 88
+            excerpt: "const region = req.region ?? 'us-east-1'"
+          - source: code
+            filePath: src/scheduler/eu.ts
+            startLine: 73
+            endLine: 73
+            excerpt: "const region = req.region ?? 'us-east-1'"
+        remediation:
+          rationale: >-
+            Computing the default once at ingestion removes the two independently mutable
+            decisions cited in the schedulers, so both paths receive the same resolved region.
+            This is better than the reviewed copies because later policy changes have one
+            owner and no silent drift path.
+          proposal: >-
+            Define DEFAULT_REGION in the ingestion owner, resolve the optional request
+            value there, pass the resolved region to both schedulers, and delete each
+            scheduler's local default expression.
+          illustration: |-
+            const DEFAULT_REGION = 'us-east-1';
+            const region = req.region ?? DEFAULT_REGION;
+            scheduleOrder({ ...order, region });
+          language: ts
+          checks:
+            - filePath: src/scheduler/us.ts
+              startLine: 88
+              endLine: 88
+              observation: This scheduler computes the default independently.
+            - filePath: src/scheduler/eu.ts
+              startLine: 73
+              endLine: 73
+              observation: This second scheduler duplicates the same default decision.
+          limitations: []
+      - id: "NS-03"
+        title: Retry budget contradicts the latency SLO the linked work item fixes
+        severity: low
+        explanation: >-
+          The linked work item fixes the p99 ingestion budget at 800 ms, but the new client
+          retries three times with a 500 ms delay, so one degraded dependency can spend 1.5 s
+          inside a single request and breach the stated budget. The intent is stated
+          explicitly rather than inferred, and honouring it is a one-constant change at a
+          single site, so align the code to the budget instead of renegotiating the budget
+          here. Alternative considered: keep 500 ms and cut `attempts` to 1 -- rejected
+          because it trades away the transient-failure recovery the change exists to add.
+        anchors:
+          - source: work-item
+            filePath: null
+            excerpt: "AB#41207 -- p99 ingestion latency budget: 800 ms"
+          - source: code
+            filePath: src/ingest/client.ts
+            startLine: 34
+            endLine: 34
+            excerpt: "const RETRY_DELAY_MS = 500;"
+        remediation:
+          rationale: >-
+            A 150 ms delay keeps three retry opportunities within the cited 800 ms request
+            budget before normal processing overhead, while retaining transient-failure
+            recovery. It is better than the reviewed 500 ms delay because that value alone can
+            consume 1.5 seconds and violate the contract.
+          proposal: >-
+            Replace the retry delay constant with a value derived from the 800 ms budget,
+            then cover the aggregate delay plus processing overhead in the existing latency
+            budget check before finalizing the value.
+          illustration: "const RETRY_DELAY_MS = 150;"
+          language: ts
+          checks:
+            - filePath: src/ingest/client.ts
+              startLine: 34
+              endLine: 34
+              observation: The delay constant is the local retry-budget input the proposal changes.
+          limitations:
+            - The exact processing overhead outside the retry delay is not located, so 150 ms is illustrative rather than a proven final budget.

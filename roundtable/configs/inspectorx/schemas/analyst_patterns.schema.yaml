@@ -1,0 +1,67 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: analyst_patterns.schema.yaml
+title: analyst_patterns agent output
+description: >-
+  Structural contract for the 'analyst_patterns' analyst pass. Reproduces the legacy analyst
+  archetype: required 'pass' (free-form pass label) + 'pass_type' (fixed enum for this
+  pass) + 'findings' (each item owes a 'severity') + 'category_checklist' (object).
+  Top-level 'severity' is PROHIBITED — the baseline severity lives on each finding, not
+  the envelope. Grounded locations[] and generic-phrase checks run as WARN gates.
+type: object
+required: [pass, pass_type, findings, category_checklist]
+properties:
+  pass:
+    not: {type: "null"}
+  pass_type:
+    type: string
+    enum: [syntax_pattern]
+  findings:
+    type: array
+    x-finding-array: true
+    description: Each finding carries at least a baseline 'severity'.
+    items:
+      type: object
+      required: [severity]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+  category_checklist:
+    type: object
+not:
+  required: [severity]
+examples:
+  - pass: "A"
+    pass_type: syntax_pattern
+    files_analyzed: 5
+    continuation_status: complete
+    category_checklist:
+      checked_categories: [redundant_operations, unused_variables, import_issues, syntax_anomalies, pattern_violations, observability_gap]
+      findings_per_category:
+        redundant_operations: 0
+        unused_variables: 0
+        import_issues: 0
+        syntax_anomalies: 1
+        pattern_violations: 0
+        observability_gap: 0
+    findings:
+      - id: A-001
+        category: syntax_anomalies
+        severity: low
+        title: saveErrorMessage typed string but initialized to null
+        locations:
+          - filePath: packages/protection/src/suppression-rules/create-suppression-rule/create-suppression-rule.store.ts
+            startLine: 268
+            endLine: 269
+        description: >-
+          saveErrorMessage is declared as a string but initialized to null; the
+          declared type should be a nullable string to reflect the null-sentinel intent.
+        evidence: >-
+          The new hunk declares the observable saveErrorMessage as a string yet assigns
+          null, so the declared type understates the real value domain.
+        fix: >-
+          Change the declaration to `saveErrorMessage: string | null = null` so the
+          compiler enforces a null check at every read site.

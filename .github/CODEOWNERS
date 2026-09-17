@@ -1,0 +1,11 @@
+* @NirMalka4
+
+/.github/workflows/** @NirMalka4
+/scripts/bootstrap.py @NirMalka4
+/scripts/release.py @NirMalka4
+/roundtable/backend/** @NirMalka4
+/roundtable/ado/** @NirMalka4
+/roundtable/delivery/** @NirMalka4
+/roundtable/inputs/replay.py @NirMalka4
+/roundtable/reporting/** @NirMalka4
+/SECURITY.md @NirMalka4

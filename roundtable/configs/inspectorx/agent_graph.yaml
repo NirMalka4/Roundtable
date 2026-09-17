@@ -1,0 +1,910 @@
+# agent_graph.yaml — SINGLE SOURCE OF TRUTH for the InspectorX agent graph
+# Python-owned so it survives prompt-bundle re-vendoring. Deps/roles live
+# HERE; only the prompt body lives in the vendored .agent.md files.
+# Adding an agent = append an entry here + ensure
+# its .agent.md exists; run `roundtable doctor` to validate.
+
+# Config self-identifier — the name under which this graph is loaded
+# (config.graph_config.get_configuration). Absent ⇒ 'inspectorx'. This config is
+# one named instance; the loader is name-addressable so more can be added.
+name: inspectorx
+domain_values:
+  schema: _shared/vocabulary.schema.yaml
+publishing:
+  default_min_severity: medium
+
+# Product identity the ADO sink stamps on user-facing surfaces (the verdict.md
+# header/footer and the PR-comment attribution). The ENGINE (Roundtable) owns
+# operational logs, the CLI, and the home dir; the BUNDLE owns the review PRODUCT
+# name. Absent ⇒ the engine name — a config with no branding speaks as the engine.
+branding:
+  product_name: InspectorX
+  product_emoji: 🕵️
+  report_title: Deep Compute Review
+
+# Graph-execution strategy (resolved by orchestration.executor.get_executor).
+# 'dag' = the static acyclic scheduler. Absent ⇒ 'dag'.
+executor: dag
+
+# Post-graph output sink (resolved by output.sink.get_sink). 'azure_devops' =
+# publish findings to the reviewed ADO PR. Absent ⇒ 'azure_devops'.
+sink: azure_devops
+
+# Result-contract: how many out-degree-0 (sink) nodes the runnable graph is
+# expected to have (doctor Layer-11). 'one' = a single domain result read
+# unambiguously by topology (review's contract). This is NOT an executor law —
+# the engine's sinks() has no cardinality opinion — so the opinion lives HERE.
+# Absent ⇒ 'one'.
+sink_cardinality: one
+
+# Post-graph publish projector (resolved by output.projector.get_projector). Maps
+# THIS graph's output onto the neutral publish contract. There is no generic
+# default — the coupling to InspectorX's Judge/verdict_overlay shape lives HERE, in
+# the config, not in generic code. Absent ⇒ the config cannot publish.
+projector: verdict_overlay
+
+# Session-report renderer (resolved by output.report.get_report). Turns THIS
+# graph's output into the human verdict.md. Independent of `sink:` — every run
+# writes a report, publishing is optional. Absent/null => the slim verdict stub.
+report: verdict_overlay
+
+# Bundle plugin modules (imported by config.graph_config.register_config_plugins).
+# Each populates the generic engine registries (context.enrichers /
+# context.extractors) with THIS config's DOMAIN built-ins — the deterministic
+# enrichers (pre-scan, security focus pack, verdict result) and the consolidation
+# extract seam (specialist findings). The generic context package ships no built-in
+# seam; the coupling to review's shape lives HERE, in the bundle. Absent ⇒ none.
+plugins:
+- roundtable.configs.inspectorx.plugins.context_plugins
+- roundtable.configs.inspectorx.plugins.gates
+- roundtable.configs.inspectorx.plugins.projector
+- roundtable.configs.inspectorx.plugins.report
+
+
+agents:
+- key: ReviewDiff
+  delivery_label: '## Git Context'
+  kind: source
+  emoji: 📄
+- key: GitHistory
+  delivery_label: '## Git History'
+  kind: source
+  emoji: 📜
+- key: DeterministicPreScan
+  agent_id: deterministicprescan
+  display_name: "Deterministic Pre-Scan"
+  edges:
+  - {from: ReviewDiff, required: true}
+  kind: code
+  code_fn: run_prescan
+  emoji: 🔬
+- key: Profiler_CodeMap
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 🔍
+  system_prompt:
+    instructions: Agents/Profiler_CodeMap.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/FileRiskScoring.md
+  model: gpt-5.6-sol
+  agent_id: profiler_codemap
+  display_name: "Profiler Code Map"
+  output_schema: profiler_codemap.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+- key: Profiler_Intent
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 📋
+  system_prompt:
+    instructions: Agents/Profiler_Intent.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+  mcp:
+  - server: ado-work-items
+    usage: Shared/MCP/ado.work-items.md
+  model: gpt-5.6-sol
+  agent_id: profiler_intent
+  display_name: "Profiler Intent"
+  output_schema: profiler_intent.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+- key: Profiler_Scenarios
+  emoji: 🎯
+  system_prompt:
+    instructions: Agents/Profiler_Scenarios.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: Profiler_Intent, required: true}
+  agent_id: profiler_scenarios
+  display_name: "Profiler Scenarios"
+  output_schema: profiler_scenarios.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+- key: SecurityIntentProfiler
+  emoji: 🧭
+  system_prompt:
+    instructions: Agents/SecurityIntentProfiler.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/ComprehensiveSecurityChecks.md
+    - Shared/ExtendedNonWebChecks.md
+  model: gpt-5.4
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: Profiler_Intent, required: true}
+  delivery_label: '## security_intent_pack'
+  agent_id: security_intent_profiler
+  display_name: "Security Intent Profiler"
+  output_schema: security_intent_profiler.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+- key: SecurityFocusPack
+  agent_id: security_focus_pack
+  display_name: "Security Focus Pack"
+  kind: code
+  code_fn: build_security_focus_pack
+  emoji: 🎛️
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: SecurityIntentProfiler, required: true}
+  delivery_label: '## security_focus_pack'
+  output_schema: security_focus_pack.schema.yaml
+- key: Historian
+  emoji: 📜
+  system_prompt:
+    instructions: Agents/Historian.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: GitHistory, required: false}
+  - {from: Profiler_CodeMap, required: true}
+  agent_id: historian
+  display_name: "Historian"
+  output_schema: historian.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  git_context_mode: changed-files-only
+- key: CodeCorrectness
+  emoji: 🔎
+  system_prompt:
+    instructions: Agents/Specialists/CodeCorrectness.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/AntiDriftProtocol.md
+    - Shared/SpecialistPatterns/correctness.md
+    - Shared/FindingOwnershipRegistry.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: DeterministicPreScan, required: true}
+  agent_id: code_correctness
+  display_name: "Code Correctness"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/codecorrectness.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Deadlock
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 🔒
+  system_prompt:
+    instructions: Agents/Specialists/Deadlock.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/deadlock.md
+  model: gpt-5.6-sol
+  agent_id: deadlock
+  display_name: "Deadlock Specialist"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/deadlock.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: DocsKeeper
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 📝
+  system_prompt:
+    instructions: Agents/Specialists/DocsKeeper.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/SpecialistPatterns/docskeeper.md
+  model: gpt-5.6-terra
+  agent_id: docskeeper
+  display_name: "Docs Keeper"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/docskeeper.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: TestQuality
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 🧪
+  system_prompt:
+    instructions: Agents/Specialists/TestQuality.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/testquality.md
+  model: gpt-5.6-terra
+  agent_id: testquality
+  display_name: "Test Quality Specialist"
+  output_schema: finding_min.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Specialist_A11y
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: ♿
+  system_prompt:
+    instructions: Agents/Specialists/Specialist_A11y.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/accessibility.md
+    - Shared/A11yChecklists/keyboard-interaction.md
+    - Shared/A11yChecklists/semantic-roles-and-landmarks.md
+    - Shared/A11yChecklists/accessible-names.md
+    - Shared/A11yChecklists/focus-management.md
+    - Shared/A11yChecklists/heading-hierarchy.md
+    - Shared/A11yChecklists/screen-reader-announcements.md
+    - Shared/A11yChecklists/data-grid-and-table.md
+  model: gpt-5.6-sol
+  agent_id: specialist_a11y
+  display_name: "Accessibility Specialist"
+  output_schema: specialist_a11y.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: locations_floor
+    level: error
+  - gate: grounded_locations
+    level: error
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Dependency
+  edges:
+  - {from: ReviewDiff, required: true}
+  emoji: 📦
+  system_prompt:
+    instructions: Agents/Specialists/Dependency.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/dependency.md
+  model: gpt-5.6-sol
+  agent_id: dependency
+  display_name: "Dependency Specialist"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/dependency.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: SchemaDrift
+  emoji: 🗃️
+  system_prompt:
+    instructions: Agents/Specialists/SchemaDrift.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/schema-drift.md
+    - Shared/SchemaDriftRubrics.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: DeterministicPreScan, required: true}
+  - {from: Profiler_CodeMap, required: false}
+  agent_id: schema_drift
+  display_name: "Schema Drift Specialist"
+  output_schema: schema_drift.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: locations_floor
+    level: error
+  - gate: proof_depth
+    level: error
+    params:
+      min_steps: 3
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+  - gate: grounded_locations
+    level: error
+  - gate: generic_phrase
+- key: Security
+  emoji: 🔐
+  system_prompt:
+    instructions: Agents/Specialists/Security.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/security.md
+  model: gpt-5.4
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: SecurityIntentProfiler, required: true}
+  - {from: SecurityFocusPack, required: true}
+  agent_id: security
+  display_name: "Security Specialist"
+  output_schema: security.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: locations_floor
+    level: error
+  - gate: proof_depth
+    level: error
+    params:
+      min_steps: 1
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+  - gate: grounded_locations
+    level: error
+  - gate: generic_phrase
+- key: Analyst_Patterns
+  emoji: 📊
+  system_prompt:
+    instructions: Agents/Analyst_Patterns.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/PragmaticReview.md
+    - Shared/AntiDriftProtocol.md
+    - Shared/SectionalAnalysis/PassA.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  agent_id: analyst_patterns
+  display_name: "Analyst Patterns"
+  output_schema: analyst_patterns.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Analyst_Logic
+  emoji: 📊
+  system_prompt:
+    instructions: Agents/Analyst_Logic.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/PragmaticReview.md
+    - Shared/TemporalContext.md
+    - Shared/AntiDriftProtocol.md
+    - Shared/SectionalAnalysis/PassB.md
+    - Shared/ValidationChecklists.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: CodeCorrectness, required: true}
+  agent_id: analyst_logic
+  display_name: "Analyst Logic"
+  output_schema: analyst_logic.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Analyst_Standards
+  emoji: 📊
+  system_prompt:
+    instructions: Agents/Analyst_Standards.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/PragmaticReview.md
+    - Shared/AntiDriftProtocol.md
+    - Shared/SectionalAnalysis/PassC.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  agent_id: analyst_standards
+  display_name: "Analyst Standards"
+  output_schema: analyst_standards.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+  inject_repo_instructions: true
+  inject_repo_instructions: true
+- key: Simulator
+  emoji: 🧠
+  system_prompt:
+    instructions: Agents/Simulator.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/PragmaticReview.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_Scenarios, required: true}
+  - {from: Deadlock, required: false}
+  agent_id: simulator
+  display_name: "Happy Path Simulator"
+  output_schema: simulator.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: mode_dependent_arrays
+    level: error
+    params:
+      mode_field: mode
+      requirements:
+        standard: [happy_path_traces]
+        inverted: [breakage_report]
+- key: AttackSurfaceScanner
+  emoji: 🎯
+  system_prompt:
+    instructions: Agents/AttackSurfaceScanner.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/ComprehensiveSecurityChecks.md
+    - Shared/ExtendedNonWebChecks.md
+  model: gpt-5.4
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: SecurityIntentProfiler, required: true}
+  - {from: SecurityFocusPack, required: true}
+  agent_id: attacksurface
+  display_name: "Attack Surface Scanner"
+  output_schema: attacksurface.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: proof_depth
+    level: warn
+    params:
+      min_steps: 1
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: PenTest
+  emoji: 🗡️
+  system_prompt:
+    instructions: Agents/Specialists/PenTest.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/SpecialistPatterns/pentest.md
+    - Shared/KnownFalsePositivePatterns.md
+  model: gpt-5.4
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  - {from: Profiler_Scenarios, required: true}
+  - {from: SecurityIntentProfiler, required: true}
+  - {from: SecurityFocusPack, required: true}
+  - {from: Security, required: true}
+  - {from: AttackSurfaceScanner, required: true}
+  agent_id: pentest
+  display_name: "PenTest Specialist"
+  output_schema: pentest.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+- key: Architecture
+  emoji: 🏗️
+  system_prompt:
+    instructions: Agents/Specialists/Architecture.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/SpecialistPatterns/architecture.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  agent_id: architecture
+  display_name: "Architecture Specialist"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/architecture.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Privacy
+  emoji: 🔏
+  system_prompt:
+    instructions: Agents/Specialists/Privacy.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/SpecialistPatterns/privacy.md
+    - Shared/PrivacyControlsReference.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: true}
+  agent_id: privacy
+  display_name: "Privacy Specialist"
+  output_schema: finding_min.schema.yaml
+  output_example: examples/privacy.example.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: json_schema
+    level: warn
+    hint: finding_recommended
+    params:
+      schema: finding_recommended.schema.yaml
+  - gate: locations_floor
+  - gate: grounded_locations
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Optimizer
+  emoji: 🚀
+  system_prompt:
+    instructions: Agents/Specialists/Optimizer.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_CodeMap, required: false}
+  agent_id: optimizer
+  display_name: "Optimizer Specialist"
+  output_schema: optimizer.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: locations_floor
+    level: error
+  - gate: grounded_locations
+    level: error
+  - gate: generic_phrase
+  - gate: fix_present
+    level: error
+  - gate: fix_prose_shape
+- key: Simulator_inverted
+  emoji: 🧠
+  system_prompt:
+    instructions: Agents/Simulator.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/PragmaticReview.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Profiler_Scenarios, required: true}
+  agent_id: simulator_inverted
+  display_name: "Chaos Simulator"
+  output_schema: simulator.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: mode_dependent_arrays
+    level: error
+    params:
+      mode_field: mode
+      requirements:
+        standard: [happy_path_traces]
+        inverted: [breakage_report]
+- key: Dossier_ExploitEngineer
+  agent_id: dossier_exploit_engineer
+  display_name: "Exploit Engineer Dossier"
+  kind: reducer
+  code_fn: consolidate
+  consolidation:
+    extract: specialist_findings
+    adjacency_gap: 10
+    render:
+      preamble: >-
+        The specialist findings below are grouped by code location into concerns.
+        Reference any finding by its canonical `agent::finding_id`. The Count Checksum
+        is the deterministic zero-drop source of truth — account for every finding.
+      empty_note: '_No specialist findings in scope._'
+      group_prefix: C
+      item_singular: finding
+      group_plural_label: Concerns
+      item_plural_label: Findings
+      depth: index+appendix
+  emoji: 🧨
+  edges:
+  - {from: Security, required: false}
+  - {from: AttackSurfaceScanner, required: false}
+  - {from: Analyst_Patterns, required: false}
+  - {from: Analyst_Logic, required: false}
+  - {from: Analyst_Standards, required: false}
+  - {from: CodeCorrectness, required: false}
+  - {from: Deadlock, required: false}
+  - {from: Privacy, required: false}
+  - {from: Architecture, required: false}
+  delivery_label: '## exploit_dossier'
+- key: ExploitEngineer
+  emoji: 💥
+  system_prompt:
+    instructions: Agents/ExploitEngineer.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+  model: gpt-5.4
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Simulator_inverted, required: true}
+  - {from: Profiler_Scenarios, required: true}
+  - {from: SecurityIntentProfiler, required: true}
+  - {from: SecurityFocusPack, required: true}
+  - {from: PenTest, required: true}
+  - {from: Dossier_ExploitEngineer, required: true}
+  agent_id: exploit_engineer
+  display_name: "Exploit Engineer"
+  output_schema: exploit_engineer.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  timeout_seconds: 600
+- key: Dossier_SeverityInflator
+  agent_id: dossier_severity_inflator
+  display_name: "Severity Inflator Dossier"
+  kind: reducer
+  code_fn: consolidate
+  consolidation:
+    extract: specialist_findings
+    adjacency_gap: 10
+    zero_drop: true
+    render:
+      preamble: >-
+        The specialist findings below are grouped by code location into concerns.
+        Reference any finding by its canonical `agent::finding_id`. The Count Checksum
+        is the deterministic zero-drop source of truth — account for every finding.
+      empty_note: '_No specialist findings in scope._'
+      group_prefix: C
+      item_singular: finding
+      group_plural_label: Concerns
+      item_plural_label: Findings
+      depth: index+appendix
+  emoji: 🗃️
+  edges:
+  - {from: Analyst_Logic, required: false}
+  - {from: Analyst_Patterns, required: false}
+  - {from: Analyst_Standards, required: false}
+  - {from: Architecture, required: false}
+  - {from: AttackSurfaceScanner, required: false}
+  - {from: CodeCorrectness, required: false}
+  - {from: Deadlock, required: false}
+  - {from: Dependency, required: false}
+  - {from: DocsKeeper, required: false}
+  - {from: ExploitEngineer, required: false}
+  - {from: Optimizer, required: false}
+  - {from: Privacy, required: false}
+  - {from: SchemaDrift, required: false}
+  - {from: Security, required: false}
+  - {from: SecurityIntentProfiler, required: false}
+  - {from: Simulator, required: false}
+  - {from: Simulator_inverted, required: false}
+  - {from: Specialist_A11y, required: false}
+  - {from: TestQuality, required: false}
+  delivery_label: '## severity_dossier'
+- key: SeverityInflator
+  emoji: 📈
+  system_prompt:
+    instructions: Agents/SeverityInflator.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Dossier_SeverityInflator, required: true}
+  - {from: SecurityIntentProfiler, required: false}
+  - {from: PenTest, required: false}
+  - {from: Simulator, required: false}
+  - {from: Historian, required: false}
+  agent_id: severity_inflator
+  display_name: "Severity Review"
+  output_schema: severity_inflator.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  terminal: true
+- key: Dossier_Judge
+  agent_id: dossier_judge
+  display_name: "Judge Dossier"
+  kind: reducer
+  code_fn: consolidate
+  consolidation:
+    extract: specialist_findings
+    adjacency_gap: 10
+    zero_drop: true
+    render:
+      preamble: >-
+        The specialist findings below are grouped by code location into concerns.
+        Reference any finding by its canonical `agent::finding_id`. The Count Checksum
+        is the deterministic zero-drop source of truth — account for every finding.
+      empty_note: '_No specialist findings in scope._'
+      group_prefix: C
+      item_singular: finding
+      group_plural_label: Concerns
+      item_plural_label: Findings
+      depth: index+appendix
+  emoji: 🗂️
+  edges:
+  - {from: Analyst_Logic, required: false}
+  - {from: Analyst_Patterns, required: false}
+  - {from: Analyst_Standards, required: false}
+  - {from: Architecture, required: false}
+  - {from: AttackSurfaceScanner, required: false}
+  - {from: CodeCorrectness, required: false}
+  - {from: Deadlock, required: false}
+  - {from: Dependency, required: false}
+  - {from: DocsKeeper, required: false}
+  - {from: ExploitEngineer, required: false}
+  - {from: Optimizer, required: false}
+  - {from: Privacy, required: false}
+  - {from: SchemaDrift, required: false}
+  - {from: Security, required: false}
+  - {from: SecurityIntentProfiler, required: false}
+  - {from: Simulator, required: false}
+  - {from: Simulator_inverted, required: false}
+  - {from: Specialist_A11y, required: false}
+  - {from: TestQuality, required: false}
+  delivery_label: '## agent_dossier'
+- key: Judge
+  emoji: 👨‍⚖️
+  system_prompt:
+    instructions: Agents/Judge.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+    - Shared/ContextAwareness.md
+    - Shared/PragmaticReview.md
+    - Shared/TemporalContext.md
+    - Shared/AntiDriftProtocol.md
+    - Shared/ZeroDropMandate.md
+    - Shared/OutputCompleteness.md
+  model: gpt-5.6-sol
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Dossier_Judge, required: true}
+  - {from: SeverityInflator, required: false}
+  - {from: Profiler_CodeMap, required: false}
+  - {from: Profiler_Intent, required: false}
+  - {from: SecurityIntentProfiler, required: false}
+  - {from: Historian, required: false}
+  agent_id: judge
+  display_name: "Judge"
+  output_schema: judge.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: judge_entries
+    level: error
+    params:
+      observation_id_pattern: '^JO-\d+$'
+      prohibited_payload_fields: [locations, evidence_chain, evidence, exploitability, stepsToReproduce, trace, impact, fix, suggestion, description, recommendation, title]
+  timeout_seconds: 1800
+  terminal: true
+- key: SuggestionPublisher
+  emoji: 📤
+  system_prompt:
+    instructions: Agents/SuggestionPublisher.agent.md
+    shared_context:
+    - Shared/AgentPreamble.md
+    - Shared/InputAwareness.md
+  mcp:
+  - server: ado-publish
+    usage: Shared/MCP/ado.publish.md
+  model: gpt-5.6-terra
+  edges:
+  - {from: ReviewDiff, required: true}
+  - {from: Judge, required: true}
+  agent_id: suggestion_publisher
+  display_name: "Suggestion Publisher"
+  output_schema: suggestion_publisher.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  terminal: true
+  non_graph_infra: true
+- key: Verdict
+  agent_id: verdict
+  display_name: "Verdict"
+  # Phase 3.5 output-CONTRACT sink node: moves the post-graph verdict + finding-count
+  # extraction into the graph. A soft Judge edge makes it tolerant (UNKNOWN when Judge
+  # is absent/degraded, mirroring compute_verdict), so it ALWAYS emits a valid domain
+  # result. It is the unique out-degree-0 node of the runnable graph — the topological
+  # handle `review` reads the run result from (doctor enforces exactly one such sink).
+  edges:
+  - {from: Judge, required: false}
+  kind: code
+  code_fn: inspectorx_build_verdict
+  emoji: 🧾
+  terminal: true

@@ -1,0 +1,309 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "taintcheck.schema.yaml"
+title: Taint Check output contract
+description: >-
+  Taint Check's security review of reachable attacker-controlled paths, emitted as one
+  JSON object. Self-contained: every field is defined here, so this schema is the
+  single source of truth for the agent's output shape and the runtime appends it
+  verbatim as the agent's `## Output contract`.
+preface: >-
+  You return your report as a single JSON object because security findings must be
+  traceable from attack surface to sink and must be mechanically distinguishable from
+  abstentions. The native evidence chain is represented as normalized `anchors`
+  objects so the extractor can ground file and line while preserving roles such as
+  entry, flow, sink, and missing-defense. Clean surfaces remain in `attack_surface` so
+  the Judge sees what was checked even when no finding passes.
+type: object
+additionalProperties: false
+required: [intent, attack_surface, findings, abstentions]
+properties:
+  intent:
+    type: string
+    description: The goal + security requirements you established (correctable; say "intent unknown" rather than fabricate).
+  attack_surface:
+    type: array
+    description: >-
+      An enumerated list of the distinct surfaces in scope, each keyed `SURF-NN`: its
+      trust boundary, entry point(s), reachable callers/context (authenticated? external?
+      privileged?), and sinks. List every surface you mapped -- including any you checked
+      and found clean (zero findings). Findings reference these ids.
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, trust_boundary, entry_points, reachable_context, sinks]
+      properties:
+        id: {type: string, pattern: '^SURF-\d{2}$', description: The `SURF-NN` key for this attack surface.}
+        trust_boundary: {type: string, minLength: 1, description: The trust boundary for the surface.}
+        entry_points:
+          type: array
+          minItems: 1
+          description: The entry point(s) for the surface.
+          items: {type: string, minLength: 1}
+        reachable_context:
+          type: string
+          minLength: 1
+          description: The reachable callers/context (authenticated? external? privileged?).
+        sinks:
+          type: array
+          minItems: 1
+          description: The sinks reachable from the surface.
+          items: {type: string, minLength: 1}
+  findings:
+    type: array
+    description: A flat list, severity descending (high->low), ties broken by hotter reachability.
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors}
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title, class, severity, defect, surface, reachability, anchors, remediation]
+      properties:
+        id: {type: string, pattern: '^TC-\d{2}$', description: '`TC-NN`, zero-padded by position in the sorted list.'}
+        title:
+          type: string
+          minLength: 1
+          description: >-
+            A one-line, plain-language headline that demonstrates the exploit rather than
+            naming the class: what the attacker sends and what they get out. Read by the
+            Judge, which adjudicates the claim and never the fix, so name the exposure
+            only -- never the defense that would close it.
+        class:
+          type: string
+          minLength: 1
+          description: One from the coverage table, with its CWE (e.g. `INJECTION (CWE-89)`).
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: The rubric value with its two grounded axes.
+        defect:
+          type: string
+          minLength: 1
+          description: The tainted path and the confirmed-absent/bypassed defense, stating how you confirmed it.
+        surface:
+          type: string
+          pattern: '^SURF-\d{2}$'
+          description: The `SURF-NN` (from the Attack-surface list) this finding enters through.
+        reachability:
+          type: string
+          enum: [proven, partial]
+          description: >-
+            `proven` | `partial`; the attacker-controlled trigger and the grounded path
+            from an entry point. `partial` must say what is unproven (and it caps severity).
+        anchors:
+          type: array
+          minItems: 1
+          description: >-
+            The finding's evidence chain: an ordered list of `{filePath,startLine,endLine,role}`;
+            role is `entry` (trust boundary) / `flow` / `sink` / `missing-defense` /
+            `reachable-caller` / `fix-site`. The first entry is the most representative
+            locus. What you cannot anchor in code, you cannot emit.
+          items:
+            type: object
+            additionalProperties: false
+            required: [filePath, startLine, endLine, role]
+            properties:
+              filePath: {type: string, minLength: 1, description: The cited path in the evidence chain.}
+              startLine: {type: integer, minimum: 1, description: The first cited line in the evidence chain.}
+              endLine: {type: integer, minimum: 1, description: The last cited line in the evidence chain.}
+              role:
+                type: string
+                enum: [entry, flow, sink, missing-defense, reachable-caller]
+                description: >-
+                  What this location proves about the taint path: `entry` (the trust
+                  boundary where attacker-controlled input arrives — route, handler,
+                  parameter, message, or deserialized payload), `flow` (a propagation step
+                  that carries the tainted value onward, cited only when it is needed to
+                  follow the path), `sink` (the dangerous operation that consumes the
+                  value — query execution, command, deserializer, path resolution,
+                  redirect, or render), `missing-defense` (the place a validation,
+                  encoding, parameterization, or authorization check should sit and does
+                  not),                   `reachable-caller` (the caller or configuration proving the entry
+                  is reachable as deployed, which is what `reachability: proven` rests
+                  on). A finding cites at least its
+                  `entry` and its `sink`.
+        chain:
+          type: array
+          description: "Optional: referenced `TC-NN` ids + the end-to-end reachable steps, when composing findings raises impact."
+          items: {type: string, minLength: 1}
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable remediation draft. The proposal names the complete
+            defense and every affected path; the illustration shows the critical
+            construct without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: where the proposed defense
+                interrupts the grounded attacker-controlled path, why it is stronger than
+                the reviewed defense, and how required behavior remains available. Do not
+                repeat the checks' local observations or the vulnerability proof.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming every trust-boundary, caller,
+                sink, defense, and coordinated change needed to close the path.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative defense code, configuration, or pseudocode showing the
+                critical construct. It is explanatory and never a complete patch.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at demonstrated taint paths, callers, sinks, and
+                possible bypasses. Each observation states what is true locally; the
+                rationale synthesizes why those facts support the proposed defense.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known bypass, affected path, assumption, or uninspected defense.
+                Empty means none was found in the checks, not that the draft was executed or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+  abstentions:
+    type: array
+    description: >-
+      Required. Suspected issues you could not ground (unconfirmable defense, opaque
+      sanitizer, unproven reachability, or budget), each with the reason and what would
+      resolve it. Silent omission and unfounded emission are equally forbidden.
+    items:
+      type: object
+      additionalProperties: false
+      required: [subject, reason]
+      properties:
+        subject: {type: string, minLength: 1, description: The suspected issue or code site that could not be grounded.}
+        reason: {type: string, minLength: 1, description: The reason and what would resolve it.}
+examples:
+  - intent: >-
+      Goal: add a bulk order-search endpoint. Security requirement: tenant isolation
+      preserved; no untrusted input reaches raw SQL. Intent for the logging change
+      unstated -> inferred from the handler.
+    attack_surface:
+      - id: "SURF-01"
+        trust_boundary: "public HTTP, unauthenticated"
+        entry_points: ["GET /api/search (RouteConfig.cs:31, no auth filter)"]
+        reachable_context: "reachable by any remote client with attacker-controlled q"
+        sinks: ["raw SQL in SearchService.cs:42"]
+      - id: "SURF-02"
+        trust_boundary: "unhandled-exception path"
+        entry_points: ["any request that throws"]
+        reachable_context: "reaches the error logger in ExceptionMiddleware.cs:57"
+        sinks: ["redacted error logging"]
+    findings:
+      - id: "TC-01"
+        title: "Unauthenticated ?q= is concatenated into raw SQL -> full DB read/write"
+        class: "INJECTION (CWE-89)"
+        severity: high
+        defect: >-
+          At SearchService.cs:42, q is concatenated straight into the SQL string passed
+          to the raw Db.Raw<Order>(...) executor.
+        surface: "SURF-01"
+        reachability: proven
+        anchors:
+          - {filePath: src/api/SearchController.cs, startLine: 38, endLine: 38, role: entry}
+          - {filePath: src/data/SearchService.cs, startLine: 42, endLine: 42, role: sink}
+          - {filePath: src/config/RouteConfig.cs, startLine: 31, endLine: 31, role: reachable-caller}
+          - {filePath: src/data/SearchService.cs, startLine: 38, endLine: 44, role: missing-defense}
+        chain:
+          - "GET /api/search?q=... reaches SearchController.Search"
+          - "q flows into SearchService.Search"
+          - "SearchService concatenates q into raw SQL"
+        remediation:
+          rationale: >-
+            Passing q as a query parameter keeps attacker-controlled text out of the SQL
+            command grammar at the cited sink, so crafted input is handled as data rather than
+            executable syntax. It is stronger than the reviewed concatenation while
+            preserving the intended name filter.
+          proposal: >-
+            Replace query-string interpolation in SearchService.cs with the existing
+            parameterized query API, keep q as a value parameter, and preserve the route
+            and controller contracts that pass the same search text.
+          illustration: |-
+            var rows = Db.Query<Order>(
+                "SELECT * FROM orders WHERE name = @q",
+                new { q });
+          language: csharp
+          checks:
+            - filePath: src/data/SearchService.cs
+              startLine: 42
+              endLine: 42
+              observation: The replacement moves q from SQL grammar construction into a parameter value at the sink.
+            - filePath: src/api/SearchController.cs
+              startLine: 38
+              endLine: 38
+              observation: The caller passes q unchanged and requires the same name-filter behavior.
+            - filePath: src/config/RouteConfig.cs
+              startLine: 31
+              endLine: 31
+              observation: The public route reaches the same controller and does not require SQL syntax in q.
+          limitations: []
+      - id: "TC-02"
+        title: "Unhandled-exception logger writes the raw request body, exposing unredacted PII"
+        class: "SENSITIVE-DATA-EXPOSURE (CWE-532)"
+        severity: medium
+        defect: >-
+          At ExceptionMiddleware.cs:57 the whole request body is written to the log on any
+          unhandled exception. Redaction is applied at the API edge only, so a body that
+          reaches the middleware from the internal queue consumer is logged unredacted.
+          Unproven: that a production queue message actually carries PII -- the consumer's
+          message contract is outside this change, so reachability is `partial` and severity
+          is capped below high.
+        surface: "SURF-02"
+        reachability: partial
+        anchors:
+          - {filePath: src/api/ExceptionMiddleware.cs, startLine: 57, endLine: 57, role: sink}
+          - {filePath: src/api/ExceptionMiddleware.cs, startLine: 50, endLine: 60, role: missing-defense}
+          - {filePath: src/queue/OrderConsumer.cs, startLine: 44, endLine: 44, role: entry}
+        remediation:
+          rationale: >-
+            Redacting at the logging sink covers both the API and queue entry paths before any
+            body reaches the cited logger, while a correlation id preserves diagnosability.
+            This is stronger than the reviewed API-edge-only defense because callers cannot
+            bypass it by entering through another middleware path.
+          proposal: >-
+            Move request-body redaction to the shared logging boundary, expose it to both
+            API and queue entry paths without introducing an API-layer dependency, and log
+            only the correlation id plus the redacted diagnostic fields.
+          illustration: |-
+            var safeRequest = requestRedactor.Redact(request);
+            logger.LogError(error, "Request {CorrelationId}: {@Request}",
+                correlationId, safeRequest);
+          language: csharp
+          checks:
+            - filePath: src/api/ExceptionMiddleware.cs
+              startLine: 50
+              endLine: 60
+              observation: The logging sink is shared by multiple middleware branches and currently receives the raw body.
+            - filePath: src/queue/OrderConsumer.cs
+              startLine: 44
+              endLine: 44
+              observation: The queue entry reaches the logging path without passing through the API-edge redaction.
+          limitations:
+            - The redaction helper lives in the API assembly, so the safe shared ownership boundary is not established by the inspected code.
+    abstentions:
+      - subject: "src/data/ReportRepo.cs:88"
+        reason: >-
+          BuildFilter() interpolates a column name that may be user-derived, but the
+          caller resolves through an interface with no visible implementation.

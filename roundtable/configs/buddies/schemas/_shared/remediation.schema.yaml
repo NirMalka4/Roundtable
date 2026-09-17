@@ -1,0 +1,58 @@
+# Authoritative Buddies remediation shape. It is inlined in every reviewer schema
+# because prompt composition does not expand arbitrary external $ref targets.
+
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Buddies shared remediation contract
+
+$defs:
+  remediation:
+    type: object
+    additionalProperties: false
+    required: [rationale, proposal, illustration, checks, limitations]
+    properties:
+      rationale:
+        type: string
+        minLength: 1
+        maxLength: 320
+        means: >-
+          Why the proposal interrupts the proven issue mechanism and is more
+          sustainable than the reviewed construct, synthesized from inspected facts.
+      proposal:
+        type: string
+        minLength: 1
+        means: >-
+          Complete implementation guidance naming every affected location and
+          coordinated step known from the evidence. It is a draft, never an applyable
+          patch.
+      illustration:
+        type: string
+        minLength: 1
+        means: >-
+          Representative code, test, configuration, query, or pseudocode that makes
+          the critical construct concrete without claiming to be a complete patch.
+      language:
+        type: string
+        minLength: 1
+        means: Optional syntax-highlighting tag for the illustration.
+      checks:
+        type: array
+        minItems: 1
+        means: >-
+          Code-reading facts used to investigate the proposal. They are seeds for
+          independent adjudication, not accepted proof or execution evidence.
+        items:
+          type: object
+          additionalProperties: false
+          required: [filePath, startLine, endLine, observation]
+          properties:
+            filePath: {type: string, minLength: 1}
+            startLine: {type: integer, minimum: 1}
+            endLine: {type: integer, minimum: 1}
+            observation: {type: string, minLength: 1, maxLength: 200}
+      limitations:
+        type: array
+        means: >-
+          Every known gap, remaining affected case, assumption, or uninspected
+          dependency. Empty means none was found by code reading, not that the draft
+          was executed or verified.
+        items: {type: string, minLength: 1, maxLength: 200}

@@ -1,0 +1,400 @@
+# agent_graph.yaml — SINGLE SOURCE OF TRUTH for the Buddies agent graph.
+#
+# Buddies is a review roster wired onto the Roundtable engine: six discipline
+# reviewers (performance, behavioral correctness, architecture, test-quality,
+# maintainability, security)
+# fan into consolidation plus a claim-only input projection. The Judge receives
+# reviewer proof with remediation removed. A post-Judge reviewer independently
+# qualifies only the selected remediation drafts for publication.
+
+# Config self-identifier — the name this graph loads under. The loader is
+# name-addressable; this is one named instance.
+name: buddies
+domain_values:
+  values:
+    severity: [low, medium, high]
+    verdict: [APPROVE, APPROVE_WITH_SUGGESTIONS, REJECT]
+publishing:
+  default_min_severity: low
+
+# Product identity the output sink stamps on user-facing surfaces.
+branding:
+  product_name: Buddies
+  product_emoji: 🤝
+  report_title: Peer Review
+
+# Static acyclic scheduler.
+executor: dag
+
+# Post-graph output sink. Buddies publishes its adjudicated claims to the reviewed
+# Azure DevOps PR through the shared ADO pipeline; the shape-specific half is the
+# `claims` projector + its renderer below, so nothing InspectorX-shaped is reused.
+sink: azure_devops
+
+# Exactly one out-degree-0 (sink) node in the runnable graph — the Verdict node.
+sink_cardinality: one
+
+# Publish projector: reads Judge claims plus Remedy Scout decisions, joins
+# each claim to its selected reviewer finding, and publishes the draft only when that
+# exact claim/finding pair was accepted.
+projector: claims
+
+# Session-report renderer (resolved by output.report.get_report). Renders THIS
+# graph's verdict.md from the Judge's adjudicated `claims[]`.
+report: claims
+
+# Bundle plugin module — registers this config's DOMAIN built-ins (the build_verdict
+# output-contract enricher + the specialist_findings consolidation extract seam).
+plugins:
+- roundtable.configs.buddies.plugins.context_plugins
+- roundtable.configs.buddies.plugins.gates
+- roundtable.configs.buddies.plugins.report
+- roundtable.configs.buddies.plugins.claims_projector
+
+
+agents:
+# ── Git context source ───────────────────────────────────────────────────────
+- key: ReviewDiff
+  display_name: "Review Diff"
+  delivery_label: '## Git Context'
+  kind: source
+  emoji: 📄
+
+# ── Reviewers (each receives the diff; each emits {findings:[...]} through the
+#    json_schema OVG gate that validates its per-agent output contract) ─────────
+- key: bigoh
+  agent_id: bigoh
+  display_name: "Big-O"
+  emoji: ⚡
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/bigoh.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - powershell
+  - read_powershell
+  - stop_powershell
+  - list_powershell
+  - web_fetch
+  - ado-code-read/repo_get_pull_request_by_id
+  - ado-code-read/repo_get_pull_request_changes
+  model: gpt-5.6-sol
+  timeout_seconds: 720
+  output_schema: bigoh.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+
+# Behavioral correctness. Deliberately narrow tools: the diff arrives on the
+# ReviewDiff edge and every proof leg is satisfied by reading the worktree, so no
+# ADO or web grant is justified yet (E-TOOLS least privilege). Widen only on an
+# observed proof that could not be grounded locally.
+- key: countercase
+  agent_id: countercase
+  display_name: "Counter Case"
+  emoji: 🎯
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/countercase.agent.md
+  tools:
+  - view
+  - rg
+  - glob
+  - powershell
+  - read_powershell
+  - stop_powershell
+  - list_powershell
+  model: gpt-5.6-sol
+  timeout_seconds: 720
+  output_schema: countercase.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+  # Same E-FAITH policy as RedGreen: `measured` must bind to a real run or retry.
+  - gate: execution_backed_evidence
+    level: error
+
+- key: north_star
+  agent_id: north_star
+  display_name: "North Star"
+  emoji: 🧭
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/north_star.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - powershell
+  - read_powershell
+  - stop_powershell
+  - list_powershell
+  - ado-code-read/repo_get_pull_request_by_id
+  - ado-code-read/repo_get_pull_request_changes
+  - ado-code-read/repo_get_file_content
+  - ado-code-read/repo_list_directory
+  - ado-code-read/repo_search_commits
+  - ado-code-read/wit_get_work_item
+  - ado-code-read/wiki_list_pages
+  - ado-code-read/wiki_get_page_content
+  model: gpt-5.6-sol
+  # `knowledge_based_answer` may consume its full 900-second server budget;
+  # reserve five minutes for repository/ADO corroboration and terminal output.
+  # Deep plan/execute is excluded because it can pull/clone workspaces and
+  # permits 1800-second runs.
+  timeout_seconds: 1200
+  output_schema: north_star.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+
+- key: redgreen
+  agent_id: redgreen
+  display_name: "Red-Green"
+  emoji: 🧪
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/redgreen.agent.md
+  tools:
+  - view
+  - rg
+  - glob
+  - powershell
+  - read_powershell
+  - stop_powershell
+  - list_powershell
+  tool_policy:
+    powershell:
+      invocation_cap_seconds: 120
+      detached_allowed: false
+    read_powershell:
+      poll_cap_seconds: 30
+  model: gpt-5.6-sol
+  timeout_seconds: 720
+  output_schema: redgreen.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+  - gate: execution_backed_evidence
+    level: error
+
+- key: smellcheck
+  agent_id: smellcheck
+  display_name: "Smell Check"
+  emoji: 👃
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/smellcheck.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - ado-code-read/repo_get_pull_request_by_id
+  - ado-code-read/repo_get_pull_request_changes
+  - ado-code-read/repo_get_file_content
+  - ado-code-read/repo_list_directory
+  - ado-code-read/repo_get_repo_by_name_or_id
+  - ado-code-read/repo_get_branch_by_name
+  model: gpt-5.6-sol
+  timeout_seconds: 720
+  output_schema: smellcheck.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+
+- key: taintcheck
+  agent_id: taintcheck
+  display_name: "Taint Check"
+  emoji: 🛡️
+  edges:
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/taintcheck.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - powershell
+  - read_powershell
+  - stop_powershell
+  - list_powershell
+  - web_fetch
+  - ado-code-read/repo_get_pull_request_by_id
+  - ado-code-read/repo_get_pull_request_changes
+  - ado-code-read/repo_get_file_content
+  - ado-code-read/repo_list_directory
+  - ado-code-read/repo_get_repo_by_name_or_id
+  - ado-code-read/repo_get_branch_by_name
+  model: gpt-5.6-sol
+  timeout_seconds: 720
+  output_schema: taintcheck.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: grounded_anchors
+  - gate: remediation_draft_shape
+
+# ── Finding Index: fan-in of every reviewer's findings into one dossier ──────
+- key: Consolidation
+  agent_id: consolidation
+  display_name: "Finding Index"
+  kind: reducer
+  code_fn: consolidate
+  emoji: 🗂️
+  consolidation:
+    extract: peer_findings
+    adjacency_gap: 10
+    zero_drop: true
+    render:
+      preamble: >-
+        This is the finding index for the change under review: every reviewer finding,
+        grouped by code location into concerns and addressable by its canonical
+        `agent::finding_id`, with its severity and a one-line summary. It is the map,
+        not the evidence — claim proof and anchors are delivered without remediation
+        under `## Reviewer Claims`; drill into those to adjudicate.
+        Account for every finding: each must be cited in some claim's
+        `source_finding_ids`. You also receive the `## Git Context` diff: use it to
+        verify or falsify each finding, not to launch a fresh review.
+      empty_note: '_No reviewer findings in scope._'
+      group_prefix: C
+      item_singular: finding
+      group_plural_label: Concerns
+      item_plural_label: Findings
+      depth: index
+  edges:
+  - {from: bigoh, required: false}
+  - {from: countercase, required: false}
+  - {from: north_star, required: false}
+  - {from: redgreen, required: false}
+  - {from: smellcheck, required: false}
+  - {from: taintcheck, required: false}
+  delivery_label: '## agent_dossier'
+
+# ── Claim-only projection: reviewer proof without remediation ────────────────
+- key: AdjudicationInputs
+  agent_id: adjudication_inputs
+  display_name: "Reviewer Claims"
+  kind: reducer
+  code_fn: render_adjudication_inputs
+  emoji: 📚
+  edges:
+  - {from: bigoh, required: false}
+  - {from: countercase, required: false}
+  - {from: north_star, required: false}
+  - {from: redgreen, required: false}
+  - {from: smellcheck, required: false}
+  - {from: taintcheck, required: false}
+  delivery_label: '## Reviewer Claims'
+
+# ── Judge: adjudicates supplied reviewer claims only ─────────────────────────
+- key: Judge
+  agent_id: judge
+  display_name: "Judge"
+  emoji: 👨‍⚖️
+  edges:
+  - {from: Consolidation, required: true}
+  - {from: AdjudicationInputs, required: true}
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/judge.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - web_fetch
+  - ado-code-read/repo_get_file_content
+  - ado-code-read/repo_list_directory
+  - ado-code-read/repo_search_commits
+  - ado-code-read/wit_get_work_item
+  - ado-code-read/wiki_get_page_content
+  model: gpt-5.6-sol
+  output_schema: judge.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: claims_coverage
+  - gate: primary_source_selection
+  - gate: claim_consistency
+  - gate: grounded_evidence
+  timeout_seconds: 720
+  terminal: true
+
+# ── Remediation qualification: publish/withhold the selected draft only ─────
+- key: RemediationInputs
+  agent_id: remediation_inputs
+  display_name: "Remediation Inputs"
+  kind: reducer
+  code_fn: render_remediation_inputs
+  emoji: 📎
+  edges:
+  - {from: Judge, required: true}
+  - {from: bigoh, required: false}
+  - {from: countercase, required: false}
+  - {from: north_star, required: false}
+  - {from: redgreen, required: false}
+  - {from: smellcheck, required: false}
+  - {from: taintcheck, required: false}
+  delivery_label: '## Eligible Remediation Drafts'
+
+- key: RemedyScout
+  agent_id: remedy_scout
+  display_name: "Remedy Scout"
+  emoji: 🔎
+  edges:
+  - {from: RemediationInputs, required: true}
+  - {from: ReviewDiff, required: true}
+  system_prompt:
+    instructions: Agents/remedy_scout.agent.md
+  mcp:
+  - server: ado-code-read
+  tools:
+  - view
+  - rg
+  - glob
+  - ado-code-read/repo_get_file_content
+  - ado-code-read/repo_list_directory
+  - ado-code-read/repo_search_commits
+  - ado-code-read/wit_get_work_item
+  - ado-code-read/wiki_list_pages
+  - ado-code-read/wiki_get_page_content
+  model: gpt-5.6-sol
+  output_schema: remedy_scout.schema.yaml
+  ovg_gates:
+  - gate: json_schema
+  - gate: remediation_decisions
+    params:
+      tool_output_names: [view]
+  timeout_seconds: 720
+  terminal: true
+
+# ── Verdict: the output-contract sink node (unique out-degree-0 node) ─────────
+- key: Verdict
+  agent_id: verdict
+  display_name: "Verdict"
+  emoji: 🧾
+  edges:
+  - {from: Judge, required: false}
+  - {from: RemedyScout, required: false}
+  kind: code
+  code_fn: buddies_build_verdict
+  terminal: true

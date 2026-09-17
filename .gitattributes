@@ -1,0 +1,7 @@
+# Oracle fixtures and Python sources must stay LF so captured fixtures remain
+# byte-stable across platforms (parity suites compare against these verbatim).
+*.json text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+roundtable/capabilities/runtime_inventory.yaml text eol=lf

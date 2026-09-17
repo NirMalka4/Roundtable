@@ -1,0 +1,81 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: simulator.schema.yaml
+title: simulator agent output
+description: >-
+  Structural contract shared by both simulator passes (standard + inverted). 'mode' is a
+  schema-enforced lowercase enum ($ref vocabulary#/$defs/mode); WHICH detail arrays are
+  mandatory depends on that mode and is enforced by the 'mode_dependent_arrays' gate (JSON
+  Schema if/then cannot express the conditional array requirements, so that gating stays a
+  gate — but it keys on the now schema-guaranteed lowercase value). breakage_report is a
+  synth-adapter source: its always-present keys ('scenario', 'outcome') compose from the
+  vocabulary and are gate-typed, while the finding itself (severity derived from 'outcome',
+  title from 'vulnerability') is synthesised by the extractor over the post-filter FAILURE
+  rows — so 'vulnerability'/'trace' are intentionally not gate-typed (PASS rows leave them
+  null/heterogeneous and are filtered out before synthesis).
+type: object
+required: [mode]
+properties:
+  mode:
+    $ref: "_shared/vocabulary.schema.yaml#/$defs/mode"
+  breakage_report:
+    type: array
+    x-finding-array: true
+    # breakage_report rows are a distinct source shape, so this property declares
+    # how its rows map onto the canonical finding: keep only non-PASS rows, use
+    # 'vulnerability' (the weakness) as the title, 'scenario' (the failing case) as
+    # the description, and translate the 'outcome' verdict into a canonical severity.
+    # No explicit id is mapped: a scenario is a full sentence, not a slug, so the
+    # extractor synthesizes a short stable id (simulator:<hash>) instead — keeping the
+    # id out of the published headline. Everything not listed falls back to the
+    # canonical field of the same name.
+    x-finding-adapter:
+      filter: {field: outcome, exclude: [PASS]}
+      title: vulnerability
+      description: scenario
+      severity:
+        from: outcome
+        map: {CRITICAL_FAILURE: critical, FAILURE: high}
+    items:
+      type: object
+      properties:
+        scenario: {$ref: "_shared/vocabulary.schema.yaml#/$defs/scenario"}
+        outcome: {$ref: "_shared/vocabulary.schema.yaml#/$defs/outcome"}
+        # Optional reachability qualifier for a FAILURE row. When present it flows
+        # (by canonical name) into the published finding's "Why this matters" as a
+        # "▸ Exploitability:" line, so a low-reachability hedge is surfaced up front
+        # rather than buried in a trailing trace step.
+        exploitability: {$ref: "_shared/vocabulary.schema.yaml#/$defs/exploitability"}
+examples:
+  - mode: inverted
+    breakage_report:
+      - scenario: DB Timeout on GetUser
+        outcome: CRITICAL_FAILURE
+        trace:
+          - 1. GetUser() called under normal conditions.
+          - 2. INJECTION: DB connection hangs for 30s (simulating sustained latency).
+          - 3. No CancellationToken is passed to the DB call — thread blocks indefinitely.
+          - 4. Caller thread cannot be reclaimed by the thread pool.
+          - 5. RESULT: Thread pool starvation under sustained DB latency — service becomes unresponsive.
+        vulnerability: Thread pool exhaustion under sustained DB latency
+        exploitability:
+          rating: moderate
+          reasoning: >-
+            Requires sustained DB latency AND no caller-side timeout to align; real
+            but conditional.
+        fix: >-
+          Pass a CancellationToken with a bounded timeout to the DB call so a hung
+          connection releases the thread instead of blocking the pool.
+    happy_path_traces:
+      - path: GetUser — DB success path
+        status: Success
+        trace:
+          - 1. GetUser() called with userId='abc123'.
+          - 2. DB query executes successfully, returns UserRecord.
+          - 3. UserRecord mapped to UserDto.
+          - 4. RESULT: Returns Ok(UserDto) — correct behavior.
+        issues: []
+    batch_metadata:
+      total_scenarios: 15
+      scenarios_executed: 10
+      early_exit: true
+      early_exit_reason: 3 critical failures found in batch 2

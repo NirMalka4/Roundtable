@@ -1,0 +1,62 @@
+# Roundtable project configuration (optional, committed, NON-SECRET).
+#
+# This file is a discoverable home for non-secret settings. It is loaded only if
+# present, discovered by walking up from the current working directory (nearest
+# roundtable.yaml wins); set ROUNDTABLE_CONFIG=<path> to point at a specific file.
+#
+# Precedence (highest first): CLI flag > environment variable > this file >
+# persisted user setting > built-in default.
+# With this file absent (or every key left unset), behaviour is identical to the
+# built-in defaults — nothing here changes how Roundtable runs unless you set it.
+#
+# SECURITY: never put a secret (an ADO PAT/token) in this file — it is committed.
+# The PAT stays in an environment variable; `ado.pat_env` only *names* which
+# variable to read. Keys literally named pat/token/secret/password/api_key are
+# rejected by the loader.
+
+# Path to the `copilot` executable (overrides PATH discovery).
+# Env override: ROUNDTABLE_PY_COPILOT_BIN
+# copilot_bin: /usr/local/bin/copilot
+
+# Full replacement prompt-bundle root (must contain Agents/ and Shared/);
+# for prompt development against a local checkout.
+# Env override: ROUNDTABLE_PY_PROMPT_DIR
+# prompt_dir: /path/to/prompts/Reviewer
+
+# Per-agent OVG retry budget: how many times an agent is re-prompted to produce
+# valid output before the run falls back to its raw text (must be an integer >= 1).
+# The `review --max-attempts` flag still overrides this. Env override:
+# ROUNDTABLE_MAX_ATTEMPTS
+# max_attempts: 3
+
+# Base directory for session artifacts. Each review lands under
+# <artifacts_dir>/<repo-slug>/<session_id>/ and a derived <repo-slug>/index.json
+# maps every session directory to its branch/PR. The `review --artifacts-dir`
+# flag still overrides this. Env override: ROUNDTABLE_ARTIFACTS_DIR
+# artifacts_dir: ~/roundtable/artifacts
+
+# Where `roundtable update` pulls new versions from: a PyPI *simple* index URL.
+# The updater discovers versions via `pip index versions --index-url <source>` and
+# installs via `pip install --index-url <source> roundtable==<vX.Y.Z>`.
+# Env override: ROUNDTABLE_UPDATE_SOURCE. No source is configured by default.
+# update:
+#   source: <operator-configured-simple-index-url>
+
+# Pull-request workspace checkout timeout in seconds (1..3600). The 600-second
+# default accommodates large repositories while keeping failures bounded.
+# Env override: ROUNDTABLE_WORKSPACE_CHECKOUT_TIMEOUT
+# workspace:
+#   checkout_timeout_seconds: 600
+
+# Azure DevOps auth for `--pr` mode.
+ado:
+  # How to authenticate the ADO REST call. Env override: ROUNDTABLE_ADO_AUTH
+  #   auto     (default) use the PAT named by `pat_env` if that env var is set,
+  #                      otherwise mint an AAD token from your `az login`.
+  #   az-login           ignore any PAT env var; always use your `az login`.
+  #   pat                require the PAT env var; error if it is missing.
+  auth: auto
+
+  # Name of the environment variable that holds the PAT (value never stored here).
+  # AZURE_DEVOPS_PAT is always accepted as a fallback name.
+  pat_env: ROUNDTABLE_ADO_PAT

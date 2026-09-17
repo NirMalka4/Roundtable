@@ -1,0 +1,67 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: analyst_standards.schema.yaml
+title: analyst_standards agent output
+description: >-
+  Structural contract for the 'analyst_standards' analyst pass. Reproduces the legacy analyst
+  archetype: required 'pass' (free-form pass label) + 'pass_type' (fixed enum for this
+  pass) + 'findings' (each item owes a 'severity') + 'category_checklist' (object).
+  Top-level 'severity' is PROHIBITED — the baseline severity lives on each finding, not
+  the envelope. Grounded locations[] and generic-phrase checks run as WARN gates.
+type: object
+required: [pass, pass_type, findings, category_checklist]
+properties:
+  pass:
+    not: {type: "null"}
+  pass_type:
+    type: string
+    enum: [standards_style]
+  findings:
+    type: array
+    x-finding-array: true
+    description: Each finding carries at least a baseline 'severity'.
+    items:
+      type: object
+      required: [severity]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+  category_checklist:
+    type: object
+not:
+  required: [severity]
+examples:
+  - pass: "C"
+    pass_type: standards_style
+    files_analyzed: 5
+    continuation_status: complete
+    category_checklist:
+      checked_categories: [naming_conventions, code_clarity, documentation, maintainability, repo_conventions]
+      findings_per_category:
+        naming_conventions: 0
+        code_clarity: 1
+        documentation: 0
+        maintainability: 0
+        repo_conventions: 0
+    findings:
+      - id: C-001
+        category: code_clarity
+        severity: low
+        title: saveErrorMessage typed string but assigned null
+        locations:
+          - filePath: packages/protection/src/suppression-rules/create-suppression-rule/create-suppression-rule.store.ts
+            startLine: 268
+            endLine: 269
+        description: >-
+          saveErrorMessage is typed as a plain string yet assigned null, so the
+          declared type does not clearly express the null-sentinel intent and reduces
+          readability at the call sites.
+        evidence: >-
+          The new hunk declares saveErrorMessage as a string while assigning null; a
+          reader cannot tell from the type that an absent-error state is represented.
+        fix: >-
+          Declare it as `saveErrorMessage: string | null = null` so the type documents
+          the null-sentinel convention explicitly.

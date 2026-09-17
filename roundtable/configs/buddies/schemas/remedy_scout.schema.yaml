@@ -1,0 +1,131 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "remedy_scout.schema.yaml"
+title: Remedy Scout output contract
+description: >-
+  Publication decisions for the reviewer-authored remediation drafts selected by
+  publishable Judge claims. This contract can publish or withhold an existing draft;
+  it cannot change the claim or author replacement remediation.
+preface: >-
+  Return one decision for every eligible remediation supplied to you. Decisions are
+  evidence records for publication control, not a second issue verdict.
+type: object
+additionalProperties: false
+required: [decisions]
+properties:
+  decisions:
+    type: array
+    description: >-
+      Exactly one decision per supplied claim and primary reviewer finding pair, in
+      supplied order. Do not include dismissed claims or findings not supplied in the
+      eligible-remediation dossier.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - claim_id
+        - primary_source_finding_id
+        - decision
+        - reason
+        - evidence
+      properties:
+        claim_id:
+          type: string
+          pattern: '^J-\d{2}$'
+          description: The Judge claim id copied exactly from the supplied dossier.
+        primary_source_finding_id:
+          type: string
+          pattern: '^[a-z0-9_]+::.+$'
+          description: >-
+            The selected reviewer finding id copied exactly from the same dossier.
+        decision:
+          type: string
+          enum: [publish, withhold]
+          description: >-
+            Publish the supplied draft unchanged, or withhold it from public output.
+            This decision does not alter the Judge claim.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 320
+          pattern: '^[^\r\n]+$'
+          description: >-
+            A concise material reason synthesized from the cited evidence. State why
+            the supplied draft passes or fails the qualification boundary; do not
+            rewrite the proposal or discuss confidence, ranking, or review process.
+        evidence:
+          type: array
+          minItems: 1
+          description: >-
+            Independently checked observations supporting this decision. Repository
+            citations identify exact source lines and quote them. A defect intrinsic
+            to the draft identifies the exact draft component and quotes it. Reviewer
+            checks are investigation leads, not evidence unless independently read.
+          items:
+            oneOf:
+              - type: object
+                additionalProperties: false
+                required: [source, path, start_line, end_line, excerpt, observation]
+                properties:
+                  source: {const: repository}
+                  path:
+                    type: string
+                    minLength: 1
+                  start_line:
+                    type: integer
+                    minimum: 1
+                  end_line:
+                    type: integer
+                    minimum: 1
+                  excerpt:
+                    type: string
+                    minLength: 1
+                    maxLength: 1200
+                    description: Exact bounded source text from the cited line range.
+                  observation:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                    description: The local fact the cited source text establishes.
+              - type: object
+                additionalProperties: false
+                required: [source, component, excerpt, observation]
+                properties:
+                  source: {const: draft}
+                  component:
+                    type: string
+                    pattern: '^(rationale|proposal|illustration|language|checks\[\d+\]\.(filePath|startLine|endLine|observation)|limitations\[\d+\])$'
+                    description: Exact component path inside the supplied remediation.
+                  excerpt:
+                    type: string
+                    minLength: 1
+                    maxLength: 600
+                    description: Exact bounded text copied from the cited component.
+                  observation:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                    description: The material defect or consistency fact in that text.
+examples:
+  - decisions:
+      - claim_id: J-01
+        primary_source_finding_id: countercase::CC-01
+        decision: publish
+        reason: The proposal closes the demonstrated boundary and accounts for its direct consumer.
+        evidence:
+          - source: repository
+            path: src/orders/normalizer.py
+            start_line: 41
+            end_line: 43
+            excerpt: |-
+              normalized = normalize(order)
+              return publish(normalized)
+            observation: The only direct consumer receives the normalized value.
+      - claim_id: J-02
+        primary_source_finding_id: redgreen::RG-01
+        decision: withhold
+        reason: The illustration leaves the asserted failure observable unspecified.
+        evidence:
+          - source: draft
+            component: illustration
+            excerpt: assert result
+            observation: The assertion does not identify the required observable value.

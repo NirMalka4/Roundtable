@@ -1,0 +1,413 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "countercase.schema.yaml"
+title: Counter Case output contract
+description: >-
+  Counter Case's behavioral review of the change, emitted as one JSON object. Self-contained:
+  every field is defined here, so this schema is the single source of truth for the agent's
+  output shape and the runtime appends it verbatim as the agent's `## Output contract`.
+preface: >-
+  You return your report as a single JSON object because a behavioral claim is only worth
+  reading if a reader can replay it: the promised behavior, the input that violates it, the
+  walk from that input to the wrong result, and the reason the change put it there. Those are
+  separate fields so none can be swallowed by persuasive prose. The walk is anchored as
+  normalized `anchors` objects so the extractor can ground file and line while preserving what
+  each location proves. Candidates you considered and did not emit stay in `abstentions`, so
+  the Judge sees what was examined even when nothing survived.
+type: object
+additionalProperties: false
+required: [intent, findings, abstentions]
+properties:
+  intent:
+    type: string
+    description: >-
+      The goal the change pursues and the behavioral promises it implies (correctable; say
+      "intent unknown" rather than fabricate).
+  findings:
+    type: array
+    description: >-
+      A flat list, severity descending (high->low), ties broken by reachability (`demonstrated`
+      before `conditional`). One entry per distinct root cause -- several inputs that fail for
+      the same reason are one finding, not several.
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors}
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - contract
+        - counterexample
+        - trace
+        - expected
+        - observed
+        - reachability
+        - counterevidence
+        - severity
+        - evidence
+        - anchors
+        - remediation
+      properties:
+        id: {type: string, pattern: '^CC-\d{2}$', description: '`CC-NN`, zero-padded by position in the sorted list.'}
+        title:
+          type: string
+          minLength: 1
+          description: >-
+            A one-line, plain-language headline naming the input and the wrong result it
+            produces -- not the defect category.
+        contract:
+          type: string
+          minLength: 1
+          description: >-
+            The specific behavior the code promises for this input, and where that promise is
+            established -- a signature or type, a documented guarantee, an assertion in an
+            existing test, a sibling branch that handles the analogous case, or what an actual
+            caller relies on. A promise you cannot locate is not a contract; abstain instead.
+        counterexample:
+          type: string
+          minLength: 1
+          description: >-
+            The concrete input, argument, or starting state that violates the contract -- exact
+            enough to reproduce. "Some malformed input" is not a counterexample.
+        trace:
+          type: array
+          minItems: 2
+          description: >-
+            The ordered walk from the counterexample to the wrong result, one step per entry,
+            each naming the location it passes through and what the value or state is at that
+            point. This is the proof; a trace that skips the deciding step proves nothing.
+          items: {type: string, minLength: 1}
+        expected:
+          type: string
+          minLength: 1
+          description: The result the contract promises for this counterexample.
+        observed:
+          type: string
+          minLength: 1
+          description: >-
+            The result the code actually produces, as established by the trace -- the divergence
+            a reader can check against `expected`.
+        reachability:
+          type: string
+          enum: [demonstrated, conditional]
+          description: >-
+            `demonstrated` = an actual caller, entry point, or callable public surface supplies
+            this counterexample, cited by a `reach` anchor. `conditional` = it needs a
+            configuration or state you can name but could not cite; say which, because it caps
+            severity. A counterexample no caller can produce is not reportable -- abstain.
+        counterevidence:
+          type: string
+          minLength: 1
+          description: >-
+            The strongest case that this is NOT a defect -- a guard elsewhere on the path, a
+            caller that never supplies the input, a deliberate tolerance, a type constraint, an
+            existing test that passes -- and what you found when you checked it, which is why it
+            does not hold. If the strongest counter-case survives, this is an abstention.
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: The rubric value; the two axes must both be grounded, not asserted.
+        evidence:
+          type: string
+          enum: [measured, inferred]
+          description: >-
+            `measured` only if you ran an existing test, build, or type-check whose result
+            establishes this divergence; otherwise `inferred` from reading code. The engine
+            checks `measured` against the run's telemetry, so an unbacked `measured` is rejected.
+        anchors:
+          type: array
+          minItems: 2
+          allOf:
+            - contains:
+                properties: {role: {const: seed}}
+                required: [role]
+            - contains:
+                properties: {role: {const: defect}}
+                required: [role]
+          description: >-
+            The finding's grounding: an ordered list of `{filePath,startLine,endLine,role}`. A
+            `seed` and a `defect` entry are both REQUIRED and the contract rejects a finding
+            without them. The first entry is the most representative locus. What you cannot
+            anchor in code, you cannot emit.
+          items:
+            type: object
+            additionalProperties: false
+            required: [filePath, startLine, endLine, role]
+            properties:
+              filePath: {type: string, minLength: 1, description: The cited path.}
+              startLine: {type: integer, minimum: 1, description: The first cited line.}
+              endLine: {type: integer, minimum: 1, description: The last cited line.}
+              role:
+                type: string
+                enum: [seed, defect, reach, contract]
+                description: >-
+                  What this location proves: `seed` (the changed line that introduces the
+                  divergence or newly exposes it — this is what makes the finding attributable
+                  to the change rather than pre-existing), `defect` (where the wrong result is
+                  actually produced, which may be unchanged code the seed now reaches),
+                  `reach` (the caller, entry point, or public surface that supplies the
+                  counterexample, which is what `reachability: demonstrated` rests on),
+                  `contract` (where the promised behavior is established — the signature,
+                  assertion, sibling branch, or documented guarantee named in `contract`).
+                  Every finding cites at least a `seed` and a
+                  `defect`; they may be the same line cited twice only when the wrong result is
+                  produced on the changed line itself.
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable remediation draft. The proposal names the complete
+            correction and every affected behavior boundary; the illustration shows
+            the critical construct without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: how the proposed
+                correction blocks the proven counterexample at the final boundary,
+                preserves the located contract, and is better than the reviewed behavior.
+                Do not repeat the checks' local observations or the issue proof.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming every edit, caller, consumer,
+                and final behavior boundary needed to block the counterexample.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative code or pseudocode showing the critical correction. It
+                is explanatory and never a complete or applyable patch.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at proposed edit sites, affected callers and
+                consumers, and the final behavior boundary. Each observation states what
+                is true locally; the rationale synthesizes why those facts support the
+                correction.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known affected case, assumption, or uninspected dependency. Empty
+                means none was found in the checks, not that the draft was executed or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+  abstentions:
+    type: array
+    description: >-
+      Required. Every candidate you considered and did not emit, each typed by the leg that
+      stopped it. Say what would resolve it. Silent omission and unfounded emission are equally
+      forbidden.
+    items:
+      type: object
+      additionalProperties: false
+      required: [subject, kind, reason]
+      allOf:
+        - if:
+            properties: {kind: {const: counter_case_held}}
+            required: [kind]
+          then:
+            required: [resolvedArtifact]
+      properties:
+        subject: {type: string, minLength: 1, description: The candidate behavior or code site you considered.}
+        kind:
+          type: string
+          enum:
+            - contract_not_located
+            - trace_incomplete
+            - no_reachable_caller
+            - counter_case_held
+            - pre_existing
+            - budget
+          description: >-
+            Which Emit Gate leg stopped this candidate: `contract_not_located` (leg 1 — no
+            promise you could locate), `trace_incomplete` (legs 2-3 — no concrete input, or a
+            step you had to assume), `no_reachable_caller` (leg 4 — nothing can supply the
+            input), `counter_case_held` (leg 5 — the strongest reason it is NOT a defect
+            survived being checked), `pre_existing` (leg 6 — the change neither introduces nor
+            newly exposes it), or `budget` (it ranked below the candidates you could afford to
+            prove). Every leg but `counter_case_held` records something you could not
+            establish; `counter_case_held` alone asserts a positive fact about the code, so it
+            obliges you to exhibit `resolvedArtifact`. A counter-case you can only assert has
+            not been checked.
+        reason: {type: string, minLength: 1, description: Why it did not become a finding, and what would resolve it.}
+        resolvedArtifact:
+          type: string
+          minLength: 1
+          description: >-
+            REQUIRED when `kind` is `counter_case_held`. The behavior as it actually stands at
+            the boundary where you claimed the divergence would occur — the composed artifact,
+            the resolved binding, the branch taken, or the final value — quoted or reconstructed
+            from what you read, plus the language or runtime rule you applied to it. Show what a
+            reader can check, not the conclusion you drew from it: "the changed fragments are
+            consistent with each other" is a conclusion, and local consistency of the edited
+            fragments never settles how they combine with the unchanged ones.
+examples:
+  - intent: >-
+      Goal: add a per-request timeout to the outbound HTTP client and return a typed failure
+      instead of throwing. Promises implied: a caller-supplied timeout is honoured, and a
+      transport failure is reported as a failed result rather than a successful empty one.
+    findings:
+      - id: "CC-01"
+        title: "A timeout of 0 disables the timeout instead of failing immediately, so the call hangs"
+        contract: >-
+          SendAsync's signature takes a non-negative TimeSpan and its doc comment promises the
+          request is abandoned once the budget elapses. The sibling retry path at
+          RetryPolicy.cs:31 treats TimeSpan.Zero as "already expired" and fails immediately, so
+          zero is an expected value in this codebase, not an undefined one.
+        counterexample: "SendAsync(request, TimeSpan.Zero)"
+        trace:
+          - "HttpClientWrapper.cs:44 — timeout arrives as TimeSpan.Zero."
+          - "HttpClientWrapper.cs:47 — `if (timeout > TimeSpan.Zero)` is false, so no CancellationTokenSource deadline is set."
+          - "HttpClientWrapper.cs:52 — SendAsync is awaited with CancellationToken.None; nothing bounds the wait."
+          - "The call blocks until the transport's own default expires, which OutboundConfig.cs:12 leaves at infinite."
+        expected: "The request is abandoned immediately and a timed-out failure is returned."
+        observed: "The request waits indefinitely; the caller's budget is silently ignored."
+        reachability: demonstrated
+        counterevidence: >-
+          The strongest counter is that no caller would pass zero. OrderSyncJob.cs:88 computes
+          the timeout by subtracting elapsed time from a total budget and clamps at zero, so a
+          job that has already used its budget passes exactly TimeSpan.Zero on its next call.
+        severity: high
+        evidence: inferred
+        anchors:
+          - {filePath: src/http/HttpClientWrapper.cs, startLine: 47, endLine: 47, role: seed}
+          - {filePath: src/http/HttpClientWrapper.cs, startLine: 52, endLine: 52, role: defect}
+          - {filePath: src/jobs/OrderSyncJob.cs, startLine: 88, endLine: 88, role: reach}
+          - {filePath: src/http/RetryPolicy.cs, startLine: 31, endLine: 31, role: contract}
+        remediation:
+          rationale: >-
+            Treating zero as a real deadline creates an immediately cancelled token, so the
+            demonstrated zero-budget call stops instead of falling through to an unbounded
+            wait. It is better than the reviewed `>` check because it preserves positive
+            timeout behavior while honoring the caller's zero budget.
+          proposal: >-
+            Change the timeout guard in HttpClientWrapper.cs to include zero while
+            preserving the existing token construction and SendAsync flow. Retain the
+            existing negative-value behavior and add the zero-budget case beside the
+            current timeout tests.
+          illustration: |-
+            if (timeout >= TimeSpan.Zero)
+            {
+                timeoutSource.CancelAfter(timeout);
+            }
+          language: csharp
+          checks:
+            - filePath: src/http/HttpClientWrapper.cs
+              startLine: 47
+              endLine: 52
+              observation: The changed comparison controls whether the token passed to SendAsync receives any deadline.
+            - filePath: src/jobs/OrderSyncJob.cs
+              startLine: 88
+              endLine: 88
+              observation: The demonstrated caller can pass exactly TimeSpan.Zero after exhausting its budget.
+            - filePath: src/http/RetryPolicy.cs
+              startLine: 31
+              endLine: 31
+              observation: The sibling path already treats zero as an immediately expired budget.
+          limitations: []
+      - id: "CC-02"
+        title: "A cancelled request is reported as a successful empty response, so callers persist an empty page"
+        contract: >-
+          The new Result<Response> return type distinguishes success from failure, and
+          ResponseHandler.cs:20 asserts in the existing test suite that a non-success outcome
+          carries an error. Cancellation is a non-success outcome.
+        counterexample: "A request whose CancellationToken is cancelled while the response body is being read."
+        trace:
+          - "HttpClientWrapper.cs:61 — the OperationCanceledException from ReadAsync is caught by the general `catch` added here."
+          - "HttpClientWrapper.cs:63 — the handler returns Result.Ok(Response.Empty) because the status line had already been parsed as 200."
+          - "PageCache.cs:40 — the caller sees IsSuccess and writes Response.Empty into the cache."
+        expected: "A cancelled read returns a failed Result carrying the cancellation."
+        observed: "It returns a successful Result with an empty body, which the caller caches as a real response."
+        reachability: conditional
+        counterevidence: >-
+          The strongest counter is that the outer host cancels only at shutdown, when the cache
+          write would not matter. That holds for the hosted service, but PageCache is also
+          driven by the request-scoped token at PageController.cs:29, where a client
+          disconnect cancels mid-read. I could not cite a disconnect actually occurring, so
+          reachability stays conditional and severity is capped below high.
+        severity: medium
+        evidence: inferred
+        anchors:
+          - {filePath: src/http/HttpClientWrapper.cs, startLine: 61, endLine: 63, role: seed}
+          - {filePath: src/http/HttpClientWrapper.cs, startLine: 63, endLine: 63, role: defect}
+          - {filePath: src/web/PageController.cs, startLine: 29, endLine: 29, role: reach}
+          - {filePath: test/http/ResponseHandlerTests.cs, startLine: 20, endLine: 20, role: contract}
+        remediation:
+          rationale: >-
+            Separating cancellation from HTTP failure prevents a cancelled read from being
+            converted into a successful empty response, so PageCache cannot persist it as
+            valid data. The coordinated error mapping is better than the reviewed catch-all
+            because every non-success path remains observably non-successful.
+          proposal: >-
+            Let OperationCanceledException propagate from HttpClientWrapper.cs, map
+            transport failures through the existing failure constructor, and keep PageCache
+            writes restricted to successful responses. Extend the response contract test
+            with cancellation and failed-read cases.
+          illustration: |-
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                return Failure.From(ex);
+            }
+          language: csharp
+          checks:
+            - filePath: src/http/HttpClientWrapper.cs
+              startLine: 61
+              endLine: 63
+              observation: The catch-all currently converts cancellation into a successful empty response.
+            - filePath: src/web/PageController.cs
+              startLine: 29
+              endLine: 29
+              observation: A request-scoped cancellation can reach the read path through this caller.
+            - filePath: test/http/ResponseHandlerTests.cs
+              startLine: 20
+              endLine: 20
+              observation: The existing contract requires non-success outcomes to carry an error.
+          limitations:
+            - The coordinated failure mapping spans the catch site and response-construction path, so the draft is not a complete drop-in patch.
+    abstentions:
+      - subject: "src/http/HttpClientWrapper.cs:71 — the redirect loop has no hop limit."
+        kind: pre_existing
+        reason: >-
+          The behavior is real but pre-existing: the loop and its bound are unchanged by this
+          change, which only moves the block into the new try. Would become reportable if the
+          change altered the termination condition.
+      - subject: "src/http/OutboundConfig.cs:12 — an infinite default transport timeout."
+        kind: contract_not_located
+        reason: >-
+          I could not locate a promise that the default is finite: no signature, test, or doc
+          establishes it, so there is no contract to violate. Reading the deployment
+          configuration would resolve whether a finite value is expected in practice.
+      - subject: "src/http/HttpClientWrapper.cs:52 — the new catch may swallow a cancellation."
+        kind: counter_case_held
+        reason: >-
+          The handler cannot observe a cancellation, so a caller that cancels still sees the
+          cancellation rather than a failed result. Would become reportable if the filter were
+          widened to the base exception type.
+        resolvedArtifact: >-
+          Composed at HttpClientWrapper.cs:52-58 the handler reads `catch (HttpRequestException
+          ex) when (!ct.IsCancellationRequested)`. An OperationCanceledException raised at line
+          49 matches neither the caught type nor the filter, so under C# exception-filter
+          semantics it leaves the frame unhandled and reaches the caller unchanged.

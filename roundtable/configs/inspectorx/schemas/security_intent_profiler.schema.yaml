@@ -1,0 +1,60 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: security_intent_profiler.schema.yaml
+title: security_intent_profiler agent output
+description: >-
+  Legacy custom contract is presence-only: five fields must each be present and non-null,
+  with no type or emptiness constraints. Each gets a non-null guard so the schema rejects
+  null exactly as the legacy 'presence' rule does (JSON Schema 'required' alone would let a
+  null value through).
+type: object
+required:
+  - change_security_intent
+  - security_cracks
+  - selected_sec_checks
+  - priority_scenarios
+  - rationale_by_sec_range
+properties:
+  change_security_intent: {not: {type: "null"}}
+  security_cracks:
+    type: array
+    x-finding-array: true
+    # Cracks carry id/title/description but no severity or category; default those
+    # to the crack taxonomy. Everything else reads canonically.
+    x-finding-adapter:
+      defaults: {severity: medium, category: security_crack}
+    items:
+      type: object
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+  selected_sec_checks: {not: {type: "null"}}
+  priority_scenarios: {not: {type: "null"}}
+  rationale_by_sec_range: {not: {type: "null"}}
+examples:
+  - change_security_intent: >-
+      The change routes backend-controlled HTTP error text into user-visible toasts and
+      centralizes 401/403 classification, widening the trust boundary on two rule-list surfaces.
+    security_cracks:
+      - id: SIP-001
+        title: Backend-controlled 400 error text flows straight into user-visible toasts
+        description: >-
+          getErrorMessageFromResponse returns raw response.data / response.data.message for
+          HTTP 400 and routes it into showError without redaction or length-bounding.
+        related_sec_ranges: [SEC-036-SEC-060]
+        fix: >-
+          Route the HTTP 400 branch through a redaction/length-bounding helper before
+          calling showError, so raw response bodies never reach a user-visible toast.
+        evidence:
+          - file: packages/protection/src/suppression-rules/common/suppression-rules.utils.ts
+            line: 38
+            detail: Returns raw response.data / response.data.message for HTTP 400.
+    selected_sec_checks: [SEC-016-SEC-035, SEC-036-SEC-060]
+    priority_scenarios:
+      - A 400 body carrying internal diagnostics is reflected verbatim in a toast shown to end users.
+    rationale_by_sec_range:
+      - sec_range: SEC-036-SEC-060
+        reason: Untrusted HTTP error bodies are accepted as display content after only shallow shape checks.
+        evidence:
+          - packages/protection/src/suppression-rules/common/suppression-rules.utils.ts:38

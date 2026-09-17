@@ -1,0 +1,318 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "bigoh.schema.yaml"
+title: BigOh output contract
+description: >-
+  BigOh's runtime- and memory-complexity review of a bounded target, emitted as one JSON
+  object. Self-contained: every field is defined here, so this schema is the single
+  source of truth for the agent's output shape and the runtime appends it verbatim as
+  the agent's `## Output contract`.
+preface: >-
+  You return your report as a single JSON object because the engine consolidates,
+  ranks, and anchors optimization findings mechanically. Each finding carries a
+  normalized `anchors` evidence list so downstream tooling can ground a thread on file
+  and line even though the native contract described locations as `path:line_start-line_end
+  -- role` strings. Abstentions stay structured because BigOh's prove-or-abstain
+  discipline requires silent omissions to remain visible.
+type: object
+additionalProperties: false
+required: [intent, findings, abstentions]
+properties:
+  intent:
+    type: string
+    description: >-
+      The goal + requirements you established (correctable; never stated as fact; say
+      "intent unknown" rather than fabricate).
+  findings:
+    type: array
+    description: >-
+      A flat list (zero is a valid result), sorted severity descending (high->low), ties
+      broken by hotter `execution_relevance`. Each finding owns its own `anchors`, so
+      cross-file findings never share scope.
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors}
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title, mechanism, baseline, optimized, anchors, severity, execution_relevance, remediation]
+      properties:
+        id:
+          type: string
+          pattern: '^BH-\d{2}$'
+          description: >-
+            `BH-NN`, zero-padded, indexed by position in this sorted list (`BH-01`,
+            `BH-02`, ...).
+        title:
+          type: string
+          minLength: 1
+          description: >-
+            A one-line headline naming the cost and where it is incurred: the operation
+            that repeats and the input it scales with. Read by the Judge, which
+            adjudicates the cost claim and never the fix, so state the problem only --
+            do not name the remedy, the target class, or the data structure that would
+            resolve it, and do not merely restate `mechanism`.
+        mechanism:
+          type: string
+          minLength: 1
+          description: >-
+            Why the construct is costly: the operation that repeats and the size it
+            scales with (the reasoning a reader checks). May note a sibling it
+            supersedes (from the Phase-4 reconcile), e.g. "supersedes BH-03".
+        baseline:
+          type: string
+          minLength: 1
+          description: "Current work model: asymptotic class over the dominant size(s) + dominant constants."
+        optimized:
+          type: string
+          minLength: 1
+          description: Suggested work model, same shape, showing the reduction.
+        anchors:
+          type: array
+          minItems: 1
+          description: >-
+            A list of the code sites that ground this finding (the evidence a reader
+            uses to verify the claim). One finding may cite several correlated sites.
+            Each entry preserves the native `path:line_start-line_end -- role` semantics
+            as `{filePath,startLine,endLine,role}`; `role` is one of `cost` (the
+            cost-bearing line), `hot-caller` (site that establishes execution relevance),
+            `anchor` (a changed head-side line
+            where a reviewer/tool could attach the comment).
+          items:
+            type: object
+            additionalProperties: false
+            required: [filePath, startLine, endLine, role]
+            properties:
+              filePath:
+                type: string
+                minLength: 1
+                description: The cited path that grounds this location.
+              startLine:
+                type: integer
+                minimum: 1
+                description: The first cited line for this location.
+              endLine:
+                type: integer
+                minimum: 1
+                description: The last cited line for this location.
+              role:
+                type: string
+                enum: [cost, hot-caller, anchor]
+                description: >-
+                  `cost` (the cost-bearing line), `hot-caller` (site that establishes
+                  execution relevance), or `anchor`
+                  (a changed head-side line where a reviewer/tool could attach the
+                  comment).
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: >-
+            `high`/`medium`/`low` from the Severity rubric, grounded by the
+            `execution_relevance` value and the `baseline` -> `optimized` work-model
+            delta.
+        execution_relevance:
+          type: string
+          enum: [per-request, per-render, per-tick, batch, one-shot, cold, unverified]
+          description: >-
+            How often the cost site actually executes — the Severity rubric's relevance
+            row, so it is derived from a caller, never from a feeling. Pick by the
+            grounded execution context: `per-request` (once per inbound server request,
+            API call, or RPC handler invocation), `per-render` (every UI render or
+            re-render pass — component body, selector, computed/reactive binding),
+            `per-tick` (a recurring timer, animation frame, poll, or per-message
+            stream/queue callback), `batch` (once per bulk job, import, or migration over
+            a collection), `one-shot` (once per process lifetime or per explicit user
+            action — startup, module init, CLI command, click handler), `cold` (off the
+            hot path entirely — build-time, test-only, admin/diagnostic, or an
+            error/fallback branch), `unverified` (you could not find the caller). The
+            first three are the rubric's `hot` row and the next three its `cold` row.
+            Any value other than `unverified` must be grounded by a cited location with
+            role `hot-caller` naming the actual caller, handler, render site, or
+            registration that reaches this cost — if you cannot cite one, the honest
+            value is `unverified`, which the rubric already caps at `low`. When two
+            contexts both reach the cost, choose the hotter one. Never guess a hotter
+            value to raise severity, and never pick `cold` to avoid reporting.
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable remediation draft. The proposal states the complete
+            optimization across every affected location; the illustration makes the
+            lower-cost construct concrete without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: how the proposed code
+                produces the baseline-to-optimized work reduction on the same inputs, why
+                it is better than the reviewed construct, and how behavior is preserved.
+                Do not repeat the checks' local observations or the finding's mechanism.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming every cost-bearing location,
+                caller, and coordinated step needed for the optimization. State unresolved
+                equivalence work instead of presenting a partial fragment as the patch.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative code or pseudocode showing the critical lower-cost
+                construct. It is explanatory and never a complete or applyable patch.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at affected callers, cost-bearing uses, and
+                behavior-preservation boundaries. Each observation states what is true
+                locally; the rationale synthesizes why those facts support the optimization.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known affected use, assumption, or uninspected dependency. Empty means
+                none was found in the checks, not that the draft was executed or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+  abstentions:
+    type: array
+    description: >-
+      Candidates you triaged but could not derive (opaque primitive, unbounded unknown,
+      non-derivable model) OR did not derive due to budget (ranked below the cap). List
+      them with the reason. This section is required: silent omission and unfounded
+      emission are equally forbidden.
+    items:
+      type: object
+      additionalProperties: false
+      required: [candidate, reason]
+      properties:
+        candidate:
+          type: string
+          minLength: 1
+          description: The candidate code site or grouped hotspot that was triaged but not derived.
+        reason:
+          type: string
+          minLength: 1
+          description: The reason the candidate could not be derived or was left below the budget cap.
+examples:
+  - intent: >-
+      Goal: reconcile webhook orders against pending ids and render a summary. Requirement:
+      correctness preserved; membership + totals unchanged. Intent for summary.tsx unstated
+      -> inferred from the render call site.
+    findings:
+      - id: "BH-01"
+        title: "Per-webhook reconcile scans the full pending list once per order (O(n*m))"
+        mechanism: >-
+          `pending_ids` is a list, so `id in pending_ids` re-scans all m ids on each of
+          the n orders -- the membership cost repeats per iteration and grows with n*m.
+        baseline: "O(n*m); 0 extra allocations."
+        optimized: "O(n+m) -- build `set(pending_ids)` once (O(m)), then membership is O(1)."
+        anchors:
+          - filePath: src/orders/reconcile.py
+            startLine: 142
+            endLine: 142
+            role: anchor
+          - filePath: src/orders/reconcile.py
+            startLine: 139
+            endLine: 147
+            role: cost
+          - filePath: src/webhooks/orders.py
+            startLine: 88
+            endLine: 88
+            role: hot-caller
+        severity: high
+        execution_relevance: per-request
+        remediation:
+          rationale: >-
+            Building one set changes repeated list membership from n scans of up to m ids
+            to one m-item construction plus n constant-time lookups. It preserves the same
+            equality-based membership decision while doing strictly less work than the
+            reviewed loop.
+          proposal: >-
+            In src/orders/reconcile.py, construct pending_set once before the order loop
+            and replace membership checks against pending_ids with checks against that set.
+            Keep the caller signature and returned summary unchanged.
+          illustration: |-
+            pending_set = set(pending_ids)
+            for order in orders:
+                if order.id in pending_set:
+                    reconciled.append(order)
+          language: python
+          checks:
+            - filePath: src/orders/reconcile.py
+              startLine: 139
+              endLine: 147
+              observation: The replacement builds one set before the loop and preserves the same membership predicate.
+            - filePath: src/webhooks/orders.py
+              startLine: 88
+              endLine: 88
+              observation: The caller supplies the same orders and pending ids and does not observe their container type.
+          limitations: []
+      - id: "BH-02"
+        title: "Nightly reindex rebuilds the whole tag map once per document (O(d*t))"
+        mechanism: >-
+          `load_tag_map()` is called inside the per-document loop, so the whole t-entry map
+          is rebuilt on each of the d documents instead of once for the batch.
+        baseline: "O(d*t); one full map allocation per document."
+        optimized: "O(d+t) -- build the map once before the loop, then each lookup is O(1)."
+        anchors:
+          - filePath: src/search/reindex.py
+            startLine: 61
+            endLine: 61
+            role: cost
+          - filePath: src/search/reindex.py
+            startLine: 58
+            endLine: 66
+            role: cost
+          - filePath: src/jobs/nightly.py
+            startLine: 24
+            endLine: 24
+            role: hot-caller
+        severity: medium
+        execution_relevance: batch
+        remediation:
+          rationale: >-
+            Moving the map load outside the loop would remove d repeated full-map builds and
+            retain one lookup per document, which is better than rebuilding identical state
+            on every iteration.
+          proposal: >-
+            Establish whether apply_tags mutates keys later documents read. If it does not,
+            load the tag map once before the loop and pass that same map to each application.
+            If it does, retain per-key refresh for only the mutated entries rather than
+            rebuilding the full map.
+          illustration: |-
+            tag_map = load_tag_map()
+            for document in documents:
+                apply_tags(document, tag_map)
+          language: python
+          checks:
+            - filePath: src/search/reindex.py
+              startLine: 58
+              endLine: 66
+              observation: The loop reloads the map before each document and later writes through the same store.
+            - filePath: src/jobs/nightly.py
+              startLine: 24
+              endLine: 24
+              observation: The nightly caller reaches the full batch path where later documents may observe earlier writes.
+          limitations:
+            - The visible code does not establish whether apply_tags can change tags read by a later document.
+    abstentions:
+      - candidate: "src/report/build.py:55 (inside loop 52-60)"
+        reason: >-
+          get_related() resolves through an interface with no visible implementation;
+          could be a cached read (O(1)) or a per-call query (N+1). Cannot derive a work
+          model -> no finding emitted.

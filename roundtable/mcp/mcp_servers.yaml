@@ -1,0 +1,132 @@
+# mcp_servers.yaml — the single, declarative source of truth for the MCP servers
+# Roundtable provisions on SDK custom agents.
+#
+# This file is loaded by `roundtable/mcp/registry.py`. To add a server: add an entry
+# under `servers:`. Servers are exact and opt-in: an agent receives a server only
+# if it declares it under `mcp:` in `agent_graph.yaml`. No Python edit is required
+# for a static or `${}`-parametrised server.
+#
+# ── Server entry schema ──────────────────────────────────────────────────────
+#   <name>:                       # logical name; a call is reported as <name>-<tool>
+#                                 # and DECLARED in agent_graph.yaml as <name>/<tool>
+#     command: <str>              # required — executable to spawn
+#     args:    [<str>, ...]       # argv; string values may contain ${field} placeholders
+#     tools:   [<str>, ...]       # optional — tool allowlist passed to the server ("*" = all)
+#     timeout: <int>              # optional — start/timeout budget (ms)
+#     requires: [<field>, ...]    # optional — McpBuildContext fields that MUST be non-empty;
+#                                 #   if any is empty this run, the server is DROPPED for the
+#                                 #   run (e.g. `ado-*` on a non-ADO repo has no `ado_org`).
+#     bindings: [[cap, tool], ...] # optional META — (capability, bare tool) advertising rows
+#                                 #   surfaced in the per-agent "ADO Tool Bindings" section
+#                                 #   (context/ado_context). NOT emitted into the MCP JSON.
+#                                 #   Each tool MUST also appear in `tools:` (load-time enforced).
+#
+# ${field} placeholders are substituted (stripped) from the runtime
+# `McpBuildContext` (see mcp_registry.McpBuildContext). Every interpolated field
+# should also appear in `requires:` so an empty value drops the server rather than
+# emitting a malformed spec. `requires:` and `bindings:` are META fields (never
+# emitted); everything else is emitted verbatim. There is NO logic beyond
+# substitution + this presence check — keep it that way (config, not code).
+
+servers:
+  # ── Azure DevOps (@azure-devops/mcp), split by ROLE for least privilege ──────
+  # Both spawn the same server binary against `${ado_org}` (resolved from the
+  # PR/repo identity; empty on a non-ADO repo ⇒ `requires: [ado_org]` drops it).
+  # Neither is a default — an agent opts in via its `agent_graph.yaml` `mcp:` block.
+  # Auth: `--authentication azcli` reuses the ambient `az login` session — a
+  # NON-interactive credential. Without it the vendor server defaults to
+  # `interactive` (browser prompt), which a headless agent/prewarm subprocess can
+  # never satisfy, so its tools stay "listed but not callable". No PAT is wired
+  # here; a CI/service-account PAT path (`-a pat` + PERSONAL_ACCESS_TOKEN) is a
+  # deliberate future extension (a secret in `env` would need trace redaction).
+  #
+  # Package resolution: these launch via `npx @azure-devops/mcp`, so the package
+  # must first be fetched. Roundtable pins `npm_config_registry` on the spawn env
+  # (`roundtable/mcp/npm_env.py`) to the operator's OWN global registry, so a review
+  # target's project `.npmrc` cannot redirect the fetch to a private feed whose
+  # token has expired (which otherwise 401s and prunes the server as unreachable).
+
+  # ado-work-items: READ path for the Profiler — PR context + Work Item traversal.
+  # Domains core+repositories+work-items; the `tools:` allowlist is exactly the
+  # traversal/PR-read surface (no write tools ⇒ the Profiler cannot mutate the PR).
+  ado-work-items:
+    command: npx
+    args: ["-y", "@azure-devops/mcp", "${ado_org}", "-d", "core", "repositories", "work-items", "--authentication", "azcli"]
+    tools:
+      - repo_get_pull_request_by_id
+      - repo_list_pull_requests_by_repo_or_project
+      - repo_list_pull_request_threads
+      - repo_list_pull_request_thread_comments
+      - wit_get_work_item
+      - wit_get_work_items_batch_by_ids
+    timeout: 30000
+    requires: [ado_org]
+    bindings:
+      - ["Get pull request", "repo_get_pull_request_by_id"]
+      - ["Find PR for branch", "repo_list_pull_requests_by_repo_or_project"]
+      - ["List PR threads", "repo_list_pull_request_threads"]
+      - ["List PR thread comments", "repo_list_pull_request_thread_comments"]
+      - ["Get work item", "wit_get_work_item"]
+      - ["Batch get work items", "wit_get_work_items_batch_by_ids"]
+
+  # ado-publish: WRITE path for the SuggestionPublisher — resolve the PR and post
+  # comment threads / suggestions (deprecated for the CLI runtime, see
+  # SuggestionPublisher.agent.md; retained for non-CLI consumers). Domains
+  # core+repositories; no work-items domain (publishing never traverses WIs).
+  ado-publish:
+    command: npx
+    args: ["-y", "@azure-devops/mcp", "${ado_org}", "-d", "core", "repositories", "--authentication", "azcli"]
+    tools:
+      - repo_get_repo_by_name_or_id
+      - repo_list_pull_requests_by_repo_or_project
+      - repo_get_pull_request_by_id
+      - repo_list_pull_request_threads
+      - repo_create_pull_request
+      - repo_create_pull_request_thread
+      - repo_update_pull_request
+    timeout: 30000
+    requires: [ado_org]
+    bindings:
+      - ["Lookup repository", "repo_get_repo_by_name_or_id"]
+      - ["Find active PR", "repo_list_pull_requests_by_repo_or_project"]
+      - ["Get pull request", "repo_get_pull_request_by_id"]
+      - ["List PR threads", "repo_list_pull_request_threads"]
+      - ["Create draft PR", "repo_create_pull_request"]
+      - ["Create PR thread", "repo_create_pull_request_thread"]
+      - ["Update pull request", "repo_update_pull_request"]
+
+  # ado-code-read: READ path for the Buddies reviewers (bigoh/north_star/smellcheck/
+  # taintcheck). Broader than ado-work-items: adds repo file/dir/branch/commit reads +
+  # wiki reads so a reviewer can pull the full owning file(s) and history behind a diff
+  # hunk. No write tools ⇒ a reviewer cannot mutate the PR. Domains core+repositories+
+  # work-items+wiki. Dropped on a non-ADO repo (`requires: [ado_org]`).
+  ado-code-read:
+    command: npx
+    args: ["-y", "@azure-devops/mcp", "${ado_org}", "-d", "core", "repositories", "work-items", "wiki", "--authentication", "azcli"]
+    tools:
+      - repo_get_pull_request_by_id
+      - repo_get_pull_request_changes
+      - repo_get_file_content
+      - repo_list_directory
+      - repo_get_repo_by_name_or_id
+      - repo_get_branch_by_name
+      - repo_search_commits
+      - wit_get_work_item
+      - wiki_list_pages
+      - wiki_get_page_content
+    timeout: 30000
+    requires: [ado_org]
+    bindings:
+      - ["Get pull request", "repo_get_pull_request_by_id"]
+      - ["Get PR changes", "repo_get_pull_request_changes"]
+      - ["Read file content", "repo_get_file_content"]
+      - ["List directory", "repo_list_directory"]
+      - ["Lookup repository", "repo_get_repo_by_name_or_id"]
+      - ["Get branch", "repo_get_branch_by_name"]
+      - ["Search commits", "repo_search_commits"]
+      - ["Get work item", "wit_get_work_item"]
+      - ["List wiki pages", "wiki_list_pages"]
+      - ["Get wiki page", "wiki_get_page_content"]
+
+# MCP servers are exact and opt-in. An agent receives only the servers listed
+# under its `mcp:` graph entry. A non-ADO repo drops servers requiring `ado_org`.

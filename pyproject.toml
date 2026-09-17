@@ -1,0 +1,114 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roundtable"
+# Version is authored in roundtable/_version.py and
+# read here via [tool.setuptools.dynamic]. Never a literal in this file — the
+# resolved version is stamped into trace.json provenance at runtime.
+dynamic = ["version"]
+description = "Roundtable — a config-driven multi-agent orchestration engine with code-review bundles"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0",
+    # JSON Schema (Draft 2020-12) is the single source of truth for agent output
+    # contracts (OVG schema gate + the LLM output-format hint). `referencing`
+    # backs local `$ref` resolution across the configs/inspectorx/schemas/_shared fragments;
+    # remote `$ref` is disabled at load time. Pinned for byte-stable diagnostics.
+    "jsonschema==4.26.0",
+    "referencing==0.37.0",
+    # The LLM backend. The SDK (imported as `copilot`) speaks a version-checked
+    # JSON-RPC protocol to the local `copilot` CLI, so the pin is EXACT — a
+    # floating range would risk a silent protocol mismatch.
+    "github-copilot-sdk==1.0.10rc1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+lint = [
+    "ruff==0.15.8",
+]
+types = [
+    "pyright==1.1.394",
+]
+
+[project.scripts]
+roundtable = "roundtable.cli:main"
+rt = "roundtable.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["roundtable*"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Versioning — authored statically in roundtable/_version.py. A
+# release bumps that file + promotes the matching CHANGELOG heading in the same
+# PR; CI's coherence gate enforces they agree.
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.setuptools.dynamic]
+version = { attr = "roundtable._version.__version__" }
+
+[tool.setuptools.package-data]
+# Ship the entire consolidated `roundtable` config bundle (configs/inspectorx/**:
+# agent_graph.yaml, gates.yaml, schemas/**, hints/**, and the prompt bundle
+# prompts/Reviewer/**), the declarative MCP-server registry
+# (mcp/mcp_servers.yaml; loaded at import), the engine-core config meta-schema
+# + universal gate manifest/hints, all as package-data so the CLI is self-contained.
+"roundtable" = [
+    "configs/**/*.yaml",
+    "configs/**/*.md",
+    "graph/*.schema.yaml",
+    "validation/*.yaml",
+    "validation/hints_core/*.md",
+    "mcp/*.yaml",
+    "capabilities/*.yaml",
+    "skills/roundtable-review/**/*.md",
+    "skills/roundtable-review/**/*.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the repo root on sys.path so tests importing the `tests` support package
+# (e.g. `from tests.support.field_coverage import …`) resolve under CI, where the
+# built wheel is installed into a clean venv and the root is not otherwise on the path.
+pythonpath = ["."]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lint (ruff) — the formatter owns line length; the linter owns correctness.
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PIE", "RET"]
+ignore = [
+    "E501",                          # line length is enforced by `ruff format`, not the linter
+    "RUF001", "RUF002", "RUF003",    # ×, ℹ, em-dashes are intentional in report/docstring text
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]                # `assert False` is idiomatic in tests
+"scripts/**" = ["T201"]              # scripts may print to stdout
+
+[tool.ruff.format]
+# Adopt the ruff formatter as the single style owner (Black-compatible).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Type checking (pyright) — `standard` is the production baseline; strict is a
+# future ratchet once the codebase is fully annotated.
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.pyright]
+include = ["roundtable"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.coverage.run]
+source = ["roundtable"]
+branch = true

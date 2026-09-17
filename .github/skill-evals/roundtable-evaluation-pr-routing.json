@@ -1,0 +1,62 @@
+{
+  "skill": "roundtable-evaluation-pr",
+  "measured": true,
+  "measurement": {
+    "date": "2026-08-16",
+    "repeats": 3,
+    "trials": 27,
+    "recall": "15/15",
+    "falseFires": "0/3",
+    "collisions": "0/9"
+  },
+  "prompts": [
+    {
+      "id": "historic-pr-evaluation",
+      "class": "should-fire",
+      "text": "Reproduce this merged ADO PR as a disposable draft and run Buddies before publishing its findings."
+    },
+    {
+      "id": "commit-detection-test",
+      "class": "should-fire",
+      "text": "Create cumulative evaluation PRs at successive commits so we can find when the default Roundtable reviewers first detect the regression."
+    },
+    {
+      "id": "automate-evaluation-pr",
+      "class": "should-fire",
+      "text": "Automate the exact-diff evaluation PR workflow we used for the known finding."
+    },
+    {
+      "id": "squash-merge-provenance",
+      "class": "should-fire",
+      "text": "Use this Azure DevOps squash merge commit to recover its original PR diff and create an evaluation draft."
+    },
+    {
+      "id": "explicit-cumulative-pair",
+      "class": "should-fire",
+      "text": "Evaluate everything from base commit aaa111 through source commit bbb222 and publish it in a disposable draft PR."
+    },
+    {
+      "id": "ordinary-pr-review",
+      "class": "near-miss",
+      "expect": "roundtable-review",
+      "text": "Review this active ADO PR with Roundtable and tell me what to fix."
+    },
+    {
+      "id": "ordinary-shipping",
+      "class": "near-miss",
+      "expect": "ship-it",
+      "text": "Commit my current changes, push the branch, and open a normal pull request."
+    },
+    {
+      "id": "report-only-comparison",
+      "class": "should-not-fire",
+      "text": "Compare these two saved Buddies reports without creating or publishing anything."
+    },
+    {
+      "id": "author-reviewer",
+      "class": "near-miss",
+      "expect": "roundtable-agent-forge",
+      "text": "Rewrite the Buddies Judge prompt so it handles conflicting findings better."
+    }
+  ]
+}

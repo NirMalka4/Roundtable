@@ -1,0 +1,53 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: schema_drift.schema.yaml
+title: SchemaDrift agent output
+description: >-
+  Structural contract for the schema-drift specialist (agent_id 'schema_drift').
+  Reproduces the legacy finding-archetype schema: a required 'findings' array whose
+  items carry the eight required keys. Grounded locations[] are the wired
+  'locations_floor' / 'grounded_locations' gates (error). SchemaDrift ALSO carries a
+  proof-depth floor with min_steps=3 (wired 'proof_depth' gate): every finding owes a
+  non-empty 'impact', and CRITICAL/HIGH findings owe exploitability + a 'trace' of ≥3
+  reproduction steps. The ready-to-use 'fix' is enforced by the wired 'fix_present' gate.
+type: object
+required: [findings]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: One entry per schema/contract drift in the changed code.
+    items:
+      type: object
+      required:
+        [id, category, severity, title, description, locations, trace, fix]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        locations: {$ref: "_shared/vocabulary.schema.yaml#/$defs/locations"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+        trace: {$ref: "_shared/vocabulary.schema.yaml#/$defs/trace"}
+        impact: {$ref: "_shared/vocabulary.schema.yaml#/$defs/impact"}
+examples:
+  - findings:
+      - id: SD-001
+        category: contract-drift
+        severity: low
+        title: Response DTO field renamed without updating the consumer type
+        description: >-
+          The API response type dropped 'errorMessage' in favour of 'message', but the
+          client-side error mapper still reads 'errorMessage', so the mapped value is
+          always undefined for this endpoint.
+        locations:
+          - filePath: packages/protection/src/suppression-rules/common/suppression-rules.utils.ts
+            startLine: 39
+            endLine: 48
+        trace:
+          - Server DTO renamed errorMessage -> message
+          - Client mapper still reads response.data.errorMessage
+        fix: Update the client error mapper to read 'message', or restore the alias.
+        impact: >-
+          The mapped error text is always undefined for this endpoint, so users see a
+          blank or fallback error instead of the backend-provided reason.

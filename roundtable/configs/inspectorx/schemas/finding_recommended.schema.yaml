@@ -1,0 +1,39 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: finding_recommended.schema.yaml
+title: Recommended finding fields (advisory)
+description: >-
+  Advisory (warn-level) companion to finding_min.schema.yaml. finding_min enforces
+  only the blocking floor (findings present, every finding has an id); this schema
+  encodes the SOFT expectation that each finding also carries the descriptive fields
+  a human-quality report wants — title, severity and description. It is wired as a
+  second, warn-level json_schema gate on the baseline finding agents, so a finding
+  missing these fields produces an advisory diagnostic (non-blocking, no retry)
+  rather than being silently accepted. There is intentionally NO top-level `required`
+  here: an empty (clean) findings array is fine, and a missing `findings` key is
+  already reported at error level by finding_min — this schema only constrains the
+  shape of findings that ARE present.
+type: object
+properties:
+  findings:
+    type: array
+    items:
+      type: object
+      required: [id, title, severity, description]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+examples:
+  - findings:
+      - id: TQ-001
+        severity: high
+        title: New error-state rendering branch has no unit coverage
+        description: >-
+          The change adds error-state conditional rendering to a component with no
+          unit test file, so the error branch is only exercised by a slow CI smoke
+          spec and prop-wiring regressions would escape unit testing.
+        fix: >-
+          Add a unit test for the error-state branch (assert the error EmptyState
+          renders for a 403 response) in a new suppression-rules-list-component.test.tsx.

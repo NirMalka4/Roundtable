@@ -1,0 +1,60 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: optimizer.schema.yaml
+title: Optimizer agent output
+description: >-
+  Structural contract for the optimizer specialist (agent_id 'optimizer'). Reproduces
+  the legacy finding-archetype schema: a required 'findings' array whose items carry
+  the twelve required keys. Grounded locations[] are the wired 'locations_floor' /
+  'grounded_locations' gates (error level). Optimizer has NO proof-depth floor.
+type: object
+required: [findings]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: One entry per complexity/performance concern in the changed code.
+    items:
+      type: object
+      required:
+        - id
+        - category
+        - primary_zone
+        - severity
+        - title
+        - description
+        - locations
+        - complexity_current
+        - complexity_suggested
+        - complexity_derivation
+        - execution_relevance
+        - fix
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        locations: {$ref: "_shared/vocabulary.schema.yaml#/$defs/locations"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+examples:
+  - findings:
+      - id: OPT-001
+        category: render_cascade
+        primary_zone: frontend_render
+        severity: low
+        title: Error-state variant recomputed on every render
+        description: >-
+          The error-state component recomputes its branch selection on each render
+          instead of memoizing the derived variant.
+        locations:
+          - filePath: packages/protection/src/shared/rule-list-states/rule-list-error-state.tsx
+            startLine: 63
+            endLine: 76
+        complexity_current: O(1) per render, re-derived on every render
+        complexity_suggested: O(1) per prop change (memoized)
+        complexity_derivation: >-
+          The branch re-derives the error variant from props on every render; memoizing
+          the derived variant makes it constant per prop change.
+        execution_relevance: Per-render — runs on every render of the rule-list surface.
+        fix: >-
+          const variant = useMemo(() => deriveErrorVariant(errorCode), [errorCode]);

@@ -1,0 +1,31 @@
+# Canonical output shape for the Privacy specialist. Referenced from
+# agent_graph.yaml (`output_example:`) and rendered into the first-attempt output
+# hint by build_schema_hint. Validated against finding_min.schema.yaml by the
+# doctor. The privacy-specific evidence fields and compliance sections are advisory
+# shape guidance the minimal shared schema deliberately does not constrain.
+findings:
+  - id: PRV-001
+    category: PII_Leakage
+    severity: high
+    locations:
+      - filePath: src/UserTelemetry.cs
+        startLine: 42
+        endLine: 58
+    pii_category: Direct Identifier
+    data_element: email
+    evidence_status: VERIFIED
+    description: User email is written to telemetry without masking.
+    data_flow_trace: HTTP POST /api/profile -> UserTelemetry.TrackProfileUpdate -> Application Insights customDimensions.email
+    iso_27701_clause: 7.2.3
+    regulation_reference: GDPR Art. 5(1)(c)
+    fix: Hash or redact the email before adding it to telemetry dimensions.
+compliance_issues:
+  - standard: GDPR Art. 5(1)(c)
+    violation: Telemetry collects a direct identifier where an opaque user ID would satisfy the diagnostic need.
+    remediation: Replace the email dimension with a non-reversible pseudonymous identifier.
+data_flow_summary:
+  pii_entry_points:
+    - HTTP POST /api/profile
+  pii_storage_points: []
+  pii_exit_points:
+    - Application Insights customDimensions.email

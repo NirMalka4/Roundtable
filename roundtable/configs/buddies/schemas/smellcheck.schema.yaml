@@ -1,0 +1,258 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "smellcheck.schema.yaml"
+title: Smell Check output contract
+description: >-
+  Smell Check's maintainability-quality review of a target, emitted as one JSON object.
+  Self-contained: every field is defined here, so this schema is the single source of
+  truth for the agent's output shape and the runtime appends it verbatim as the agent's
+  `## Output contract`.
+preface: >-
+  You return your report as a single JSON object so maintainability findings can be
+  deduplicated, ranked, and anchored with peer reviewer findings. The native contract's
+  ordered `anchors` are kept, normalized to `{filePath, startLine, endLine, role}`
+  objects while preserving role labels such as duplicate-site, definition, and
+  pattern-to-follow. The JSON shape separates your assumed understanding from the
+  evidence-backed findings the engine can publish or consolidate.
+type: object
+additionalProperties: false
+required: [intent, findings]
+properties:
+  intent:
+    type: string
+    description: >-
+      A concise specification, in your own words: the goal / requirement the target is
+      meant to satisfy, the approach taken (name design patterns where recognized), and
+      -- in change mode -- the integration mode you classified. Label it explicitly as
+      an assumption open to correction.
+  findings:
+    type: array
+    description: One entry per opportunity, ordered by severity (high->low).
+    x-finding-array: true
+    x-finding-adapter:
+      locations: {from: anchors}
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title, dimension, severity, explanation, anchors, remediation]
+      properties:
+        id:
+          type: string
+          pattern: '^SC-\d{2}$'
+          description: Stable (SC-01, SC-02, ...) so comments/threads can reference it.
+        title:
+          type: string
+          minLength: 1
+          description: >-
+            A short, factual headline (<= ~10 words) naming the specific smell instance
+            and its locus. No justification and no editorializing -- it exists for
+            scannability, not opinion.
+        dimension:
+          type: string
+          minLength: 1
+          description: One from the dimensions table (with the SOLID principle if applicable).
+        severity:
+          type: string
+          enum: [high, medium, low]
+          description: One of `low | medium | high`, taken from the rubric matrix.
+        explanation:
+          type: string
+          minLength: 1
+          description: >-
+            Why this is recommended, citing the observable symptom; include the
+            blast-radius verdict; if it deviates from the anchored convention, justify
+            why the pros outweigh the cons.
+        anchors:
+          type: array
+          minItems: 1
+          description: >-
+            An ordered list of evidence loci `{filePath,startLine,endLine,role}` that
+            ground the claim so the reader can locate, verify, and contest it; every
+            cited symptom and the before->after must appear here. Order by evidentiary
+            primacy -- the first entry is the most representative locus, and `role` says
+            what each locus proves.
+          items:
+            type: object
+            additionalProperties: false
+            required: [filePath, startLine, endLine, role]
+            properties:
+              filePath: {type: string, minLength: 1, description: The cited file path for this evidence locus.}
+              startLine: {type: integer, minimum: 1, description: The starting line for this evidence locus.}
+              endLine: {type: integer, minimum: 1, description: The ending line for this evidence locus.}
+              role:
+                type: string
+                enum: [smell-site, duplicate-site, pattern-to-follow, definition, contradicting-doc-line]
+                description: >-
+                  What this locus proves, so a reader knows why it was cited:
+                  `smell-site` (the target code exhibiting the dimension's symptom — the
+                  default primary anchor), `duplicate-site` (one of the two-or-more sites
+                  sharing the same shape, for `DRY`), `pattern-to-follow` (the neighboring
+                  example of the intended convention or evidenced standard, for `PATTERN`
+                  and `STANDARDS`), `definition` (the declaration, type, or contract that
+                  grounds the claim),                   `contradicting-doc-line` (the doc claim the change
+                  now contradicts, for `DOC-DRIFT`). A `DOC-DRIFT` finding cites both
+                  the doc line and the contradicting code.
+        remediation:
+          type: object
+          additionalProperties: false
+          required: [rationale, proposal, illustration, checks, limitations]
+          description: >-
+            One non-applyable remediation draft. The proposal names the complete
+            refactoring and every affected consumer; the illustration shows the
+            critical construct without claiming to be a complete patch.
+          properties:
+            rationale:
+              type: string
+              minLength: 1
+              maxLength: 320
+              description: >-
+                A focused conclusion that synthesizes the checks: how the proposed
+                refactoring removes the cited quality symptom, why it is better than the
+                reviewed construct, and why its value exceeds its blast radius and
+                consistency cost. State any relevant trade-off; do not repeat the checks'
+                local observations or the issue proof.
+            proposal:
+              type: string
+              minLength: 1
+              description: >-
+                Complete implementation guidance naming every extraction, replacement,
+                consumer update, and convention-preserving step.
+            illustration:
+              type: string
+              minLength: 1
+              description: >-
+                Representative refactoring code or pseudocode showing the critical
+                construct. It is explanatory and never a complete or applyable patch.
+            language:
+              type: string
+              minLength: 1
+              description: Optional syntax-highlighting language for the illustration.
+            checks:
+              type: array
+              minItems: 1
+              description: >-
+                Exact facts inspected at consumers, surrounding conventions,
+                behavior-preservation boundaries, and remaining duplicate sites. Each
+                observation states what is true locally; the rationale synthesizes why
+                those facts support the refactoring.
+              items:
+                type: object
+                additionalProperties: false
+                required: [filePath, startLine, endLine, observation]
+                properties:
+                  filePath: {type: string, minLength: 1}
+                  startLine: {type: integer, minimum: 1}
+                  endLine: {type: integer, minimum: 1}
+                  observation: {type: string, minLength: 1, maxLength: 200}
+            limitations:
+              type: array
+              description: >-
+                Every known trade-off, remaining duplicate site, or uninspected
+                consumer. Empty means none was found in the checks, not that the
+                draft was compiled, executed, or verified.
+              items: {type: string, minLength: 1, maxLength: 200}
+examples:
+  - intent: >-
+      Assumption, correct me if wrong: The change adds retry handling to the outbound
+      HTTP client with a hand-rolled loop and fixed sleep. Intent: make transient network
+      failures self-heal. Approach: inline retry, no abstraction. Integration mode:
+      extending an existing legacy client flow.
+    findings:
+      - id: "SC-01"
+        title: "Retry loop duplicated across HTTP and Queue clients"
+        dimension: "DRY"
+        severity: medium
+        explanation: >-
+          The same retry loop now appears in HttpClient.cs:88-104 and already in
+          QueueClient.cs:141-157. Extracting a single RetryPolicy helper removes the
+          duplication and centralizes backoff. Blast-radius: medium -- two internal
+          call-sites, so the win is clear and adoption is contained.
+        anchors:
+          - filePath: src/Net/HttpClient.cs
+            startLine: 88
+            endLine: 104
+            role: duplicate-site
+          - filePath: src/Queue/QueueClient.cs
+            startLine: 141
+            endLine: 157
+            role: duplicate-site
+          - filePath: src/Throttle/ThrottlePolicy.cs
+            startLine: 12
+            endLine: 20
+            role: pattern-to-follow
+        remediation:
+          rationale: >-
+            One RetryPolicy removes the two cited hand-maintained loops and gives backoff one
+            owner while preserving the same operation, attempt count, and delay at each call
+            site. The contained two-site change is better than the reviewed duplication
+            because future retry changes cannot silently diverge.
+          proposal: >-
+            Add RetryPolicy.Execute beside the existing throttle policy, move the common
+            attempt and delay loop into it, replace both HTTP and queue loops with calls
+            that preserve their operation delegates, and keep caller-specific error
+            handling outside the helper.
+          illustration: |-
+            public static async Task<T> Execute<T>(
+                Func<Task<T>> operation,
+                int attempts,
+                int delayMs)
+            {
+                return await operation();
+            }
+          language: csharp
+          checks:
+            - filePath: src/Net/HttpClient.cs
+              startLine: 88
+              endLine: 104
+              observation: The first retry loop supplies the operation, attempt count, and delay the shared helper must preserve.
+            - filePath: src/Queue/QueueClient.cs
+              startLine: 141
+              endLine: 157
+              observation: The second loop duplicates the same policy and is the coordinated consumer of the extraction.
+            - filePath: src/Throttle/ThrottlePolicy.cs
+              startLine: 12
+              endLine: 20
+              observation: The repository already centralizes a comparable policy behind a helper.
+          limitations:
+            - The two call sites require coordinated edits, so the draft is not a complete one-range replacement.
+      - id: "SC-02"
+        title: "Retry ceiling is a bare literal where this file names its other limits"
+        dimension: "MAINTAINABILITY"
+        severity: low
+        explanation: >-
+          The loop bound on line 96 is a bare `3`, while every other limit in this file is a
+          named constant declared together on lines 21-22 (`MaxConcurrency`, `TimeoutMs`), so
+          a reader cannot tell whether 3 is tuned or incidental and a tuning change has no
+          obvious home. Blast-radius: low -- one file, one literal, no call-site or signature
+          change, and the file's own convention already shows the intended shape.
+        anchors:
+          - filePath: src/Net/HttpClient.cs
+            startLine: 96
+            endLine: 96
+            role: smell-site
+          - filePath: src/Net/HttpClient.cs
+            startLine: 21
+            endLine: 22
+            role: pattern-to-follow
+        remediation:
+          rationale: >-
+            Naming the retry ceiling makes the loop follow the file's cited convention for
+            operational limits and gives tuning changes one explicit home. It is better than
+            the reviewed bare literal because behavior stays identical while the value's
+            intent and ownership become visible.
+          proposal: >-
+            Declare MaxRetryAttempts with the file's other operational limits and replace
+            the loop's bare value with that constant without changing the comparison.
+          illustration: |-
+            private const int MaxRetryAttempts = 3;
+            for (var attempt = 0; attempt < MaxRetryAttempts; attempt++)
+          language: csharp
+          checks:
+            - filePath: src/Net/HttpClient.cs
+              startLine: 96
+              endLine: 96
+              observation: The replacement changes only the loop-bound spelling and preserves the value used by the comparison.
+            - filePath: src/Net/HttpClient.cs
+              startLine: 21
+              endLine: 22
+              observation: The file already owns operational limit constants at this declaration site.
+          limitations: []

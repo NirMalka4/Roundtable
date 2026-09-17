@@ -1,0 +1,28 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: profiler_scenarios.schema.yaml
+title: profiler_scenarios agent output
+description: >-
+  Legacy custom contract: a non-empty 'inversion_scenarios' array whose items each carry
+  target/inversion/category. minItems folds in the legacy semantic 'required' empty-array
+  check; the array type rejects null.
+type: object
+required: [inversion_scenarios]
+properties:
+  inversion_scenarios:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required: [target, inversion, category]
+examples:
+  - inversion_scenarios:
+      - target: GetUserById
+        inversion: Database connection pool exhausted
+        category: external_dependency
+        variants:
+          - DB timeout before first row
+          - DB returns 500 after partial read
+    scenarios_trimmed:
+      total_generated: 30
+      consolidated_into: 18
+      emitted: 10

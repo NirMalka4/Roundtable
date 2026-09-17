@@ -1,0 +1,45 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: specialist_a11y.schema.yaml
+title: Specialist_A11y agent output
+description: >-
+  Structural contract for the accessibility specialist (agent_id 'specialist_a11y').
+  Reproduces the legacy finding-archetype schema: a required 'findings' array whose
+  items carry the eight required keys. Deeper checks (grounded locations[]) are the
+  wired 'locations_floor' / 'grounded_locations' gates (error level), not this schema.
+  A11y has NO proof-depth floor.
+type: object
+required: [findings]
+properties:
+  findings:
+    type: array
+    x-finding-array: true
+    description: One entry per accessibility defect in the changed code.
+    items:
+      type: object
+      required: [id, category, wcag, severity, title, description, locations, fix]
+      properties:
+        id: {$ref: "_shared/vocabulary.schema.yaml#/$defs/id"}
+        category: {$ref: "_shared/vocabulary.schema.yaml#/$defs/category"}
+        severity: {$ref: "_shared/vocabulary.schema.yaml#/$defs/severity"}
+        title: {$ref: "_shared/vocabulary.schema.yaml#/$defs/title"}
+        description: {$ref: "_shared/vocabulary.schema.yaml#/$defs/description"}
+        locations: {$ref: "_shared/vocabulary.schema.yaml#/$defs/locations"}
+        fix: {$ref: "_shared/vocabulary.schema.yaml#/$defs/fix"}
+examples:
+  - findings:
+      - id: A11Y-001
+        category: screen-reader-announcements
+        wcag: "4.1.3"
+        severity: medium
+        title: Forbidden error state rendered without role="alert" live region
+        description: >-
+          The forbidden error branch renders a bare EmptyState with no live-region
+          wrapper, so a 401/403 that dynamically replaces the list content is silent
+          to assistive technology.
+        locations:
+          - filePath: packages/protection/src/shared/rule-list-states/rule-list-error-state.tsx
+            startLine: 63
+            endLine: 76
+        fix: >-
+          Wrap the forbidden EmptyState in <div role="alert"> so the permission
+          error is announced when it replaces the list.

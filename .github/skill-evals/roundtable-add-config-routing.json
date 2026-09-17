@@ -1,0 +1,21 @@
+{
+  "skill": "roundtable-add-config",
+  "prompts": [
+    {
+      "id": "new-configuration",
+      "class": "should-fire",
+      "text": "Build a separate Roundtable bundle for architecture proposals, with explicit inputs and a mockable final recommendation."
+    },
+    {
+      "id": "repository-instructions",
+      "class": "near-miss",
+      "expect": "agent-instructions-craft",
+      "text": "Copilot uses the wrong test command in this repository. Fix the standing repository instructions."
+    },
+    {
+      "id": "generic-config",
+      "class": "should-not-fire",
+      "text": "Add a retry count to this application's ordinary YAML settings file."
+    }
+  ]
+}

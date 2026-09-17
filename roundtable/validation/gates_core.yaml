@@ -1,0 +1,18 @@
+# ─── Engine-core universal gate manifest ─────────────────────────────────────
+#
+# Task-agnostic output-validation primitives that apply to EVERY config,
+# independent of domain. These are the engine's promise: any agent output is
+# parsed and validated against its declared output contract, and deviations are
+# surfaced as structured feedback (the OVG micro-loop substrate).
+#
+# A config bundle's `configs/<name>/gates.yaml` declares DOMAIN gates on top of
+# these; it may NOT redefine a universal gate name (load_gate_registry rejects a
+# collision). Same record shape as a bundle manifest — see that file's header.
+
+gates:
+  json_schema:
+    fn: json_schema
+    default_level: error
+    default_hint: json_schema
+    requires: []          # structural gate — applies to the whole document
+    accepts_arbitrary_json_root: true

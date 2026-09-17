@@ -1,0 +1,49 @@
+{
+  "skill": "roundtable-review",
+  "measured": false,
+  "prompts": [
+    {
+      "id": "explicit-pr-review",
+      "class": "should-fire",
+      "text": "Review this ADO PR with Roundtable: https://dev.azure.com/example/project/_git/repo/pullrequest/42"
+    },
+    {
+      "id": "explicit-branch-review",
+      "class": "should-fire",
+      "text": "Run a Roundtable review of my committed branch against origin/main."
+    },
+    {
+      "id": "interpret-verdict",
+      "class": "should-fire",
+      "text": "Read this completed Roundtable session and tell me which Judge claims I should address, why, and how."
+    },
+    {
+      "id": "routine-self-check",
+      "class": "should-not-fire",
+      "text": "Implement this change and check your work before returning it."
+    },
+    {
+      "id": "static-file-review",
+      "class": "should-not-fire",
+      "text": "Review only roundtable/cli.py for naming issues."
+    },
+    {
+      "id": "evaluation-draft",
+      "class": "near-miss",
+      "expect": "roundtable-evaluation-pr",
+      "text": "Recreate this merged PR as an evaluation-only draft and publish a fresh Buddies review."
+    },
+    {
+      "id": "author-skill",
+      "class": "near-miss",
+      "expect": "skill-forge",
+      "text": "Improve the routing description of the Roundtable review skill."
+    },
+    {
+      "id": "author-agent",
+      "class": "near-miss",
+      "expect": "roundtable-agent-forge",
+      "text": "Rewrite the BigO Roundtable reviewer prompt."
+    }
+  ]
+}
