@@ -7,10 +7,14 @@ false-CLEAN — review.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from _gitrepo import GitRepo
 
 from roundtable.cli import _BaseBranchUnresolved, _resolve_verify_base
+
+_README = Path(__file__).resolve().parents[3] / "README.md"
 
 
 def test_verify_base_autodetect_returns_resolvable(feature_repo: GitRepo):
@@ -27,3 +31,9 @@ def test_verify_base_unresolvable_raises(feature_repo: GitRepo):
     # Explicit base that does NOT resolve -> hard-fail, never a silent empty diff.
     with pytest.raises(_BaseBranchUnresolved, match="would be empty"):
         _resolve_verify_base(feature_repo.path, "no-such-branch", "[test]")
+
+
+def test_readme_simulation_uses_a_fresh_clone_resolvable_base():
+    readme = _README.read_text(encoding="utf-8")
+
+    assert "roundtable review . --base-branch HEAD --simulate" in readme
